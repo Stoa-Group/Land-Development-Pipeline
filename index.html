@@ -1,0 +1,469 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="app.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <!-- ExcelJS for styled Excel export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Main Content -->
+      <main class="main-content">
+        <!-- Project Header -->
+        <div class="project-header">
+          <div class="project-title-row">
+            <button class="back-to-nav-btn" id="back-to-nav-btn" title="Back to Navigation" style="display: none;">
+              <span class="back-arrow-icon">←</span> Back
+            </button>
+            <img src="Logos/STOA20-Logo-Mark-Green.jpg" alt="STOA" class="stoa-logo" />
+            <span class="project-title">Deal Pipeline (Beta)</span>
+            <span id="admin-badge" class="admin-badge" style="display: none;" title="You can edit and use Deal Pipeline / Edit Mode">ADMIN logged in</span>
+            <div class="header-actions" id="header-actions" style="display: none;">
+              <button class="export-pipeline-btn" id="export-pipeline-btn" title="Export Pipeline to Excel">Export Pipeline</button>
+              <div id="auth-actions" style="display: none;">
+                <button class="login-btn" id="login-btn" style="display: none;">Login</button>
+                <button class="deal-pipeline-btn" id="deal-pipeline-btn" style="display: none;">Deal Pipeline</button>
+                <button class="edit-mode-btn" id="edit-mode-btn" style="display: none;">Edit Mode</button>
+              </div>
+            </div>
+          </div>
+          <div class="nav-tabs">
+            <button class="nav-tab" data-view="overview">Overview</button>
+            <button class="nav-tab active" data-view="list">List</button>
+            <button class="nav-tab" data-view="location">By Location</button>
+            <button class="nav-tab" data-view="bank">By Bank</button>
+            <button class="nav-tab" data-view="product">By Product Type</button>
+            <button class="nav-tab" data-view="timeline">Timeline</button>
+            <button class="nav-tab" data-view="units">Unit Summary</button>
+            <button class="nav-tab" data-view="files">Deal Files</button>
+          </div>
+        </div>
+
+        <!-- Filter and Sort Controls -->
+        <div class="filter-controls" id="filter-controls" style="display: none;">
+          <div class="filter-group">
+            <label>Filter by Stage:</label>
+            <select id="stage-filter" class="filter-select">
+              <option value="">All Stages</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Filter by Location:</label>
+            <select id="location-filter" class="filter-select">
+              <option value="">All Locations</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Filter by Bank:</label>
+            <select id="bank-filter" class="filter-select">
+              <option value="">All Banks</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Filter by Product Type:</label>
+            <select id="product-filter" class="filter-select">
+              <option value="">All Types</option>
+            </select>
+          </div>
+          <div class="filter-group">
+          </div>
+          <div class="filter-group">
+            <label>Search:</label>
+            <input type="text" id="search-filter" class="filter-search" placeholder="Search deals...">
+          </div>
+          <button class="clear-filters-btn" onclick="clearFilters()">Clear Filters</button>
+        </div>
+
+        <!-- Sort Controls -->
+        <div class="sort-controls" id="sort-controls" style="display: none;">
+          <div class="sort-group">
+            <label>Sort by:</label>
+            <select id="sort-by" class="sort-select">
+              <option value="name">Name</option>
+              <option value="stage">Stage</option>
+              <option value="units">Unit Count</option>
+              <option value="date" selected>Start Date</option>
+              <option value="location">Location</option>
+            </select>
+            <select id="sort-order" class="sort-select">
+              <option value="asc" selected>Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- List View Container -->
+        <div class="list-view-container">
+          <!-- List View Toggle -->
+          <div class="list-view-toggle" id="list-view-toggle" style="display: none;">
+            <button class="toggle-btn" data-mode="timeline">By Quarter/Year</button>
+            <button class="toggle-btn" data-mode="stage">By Stage</button>
+          </div>
+          <!-- Deal List will be populated by JavaScript -->
+          <div id="deal-list-container">
+            <!-- Loading state -->
+            <div class="loading">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Deal Pipeline Management View (Admin Only - Shows when Deal Pipeline button clicked) -->
+        <div class="deal-pipeline-view" id="deal-pipeline-view" style="display: none;">
+          <div class="deal-pipeline-header">
+            <div class="deal-pipeline-header-content">
+              <div>
+                <h2><span class="warning-icon">!</span> Deal Pipeline - Core Data Management</h2>
+                <p><strong>Admin Access Only:</strong> Changes made here affect deal attributes across ALL departments. Please validate all changes carefully before saving.</p>
+              </div>
+              <button class="exit-deal-pipeline-btn" id="exit-deal-pipeline-btn">
+                <span class="back-arrow">Back</span> to Dashboard
+              </button>
+            </div>
+          </div>
+          
+            <div class="deal-pipeline-controls">
+            <button class="btn-primary" id="add-deal-pipeline-btn">
+              <span class="add-icon">+</span> Add New Deal
+            </button>
+            <button class="btn-secondary" id="save-all-deals-btn" style="display: none;">
+              <span class="save-icon">Save</span> All Changes
+            </button>
+            <div class="search-wrapper">
+              <span class="search-icon">Search:</span>
+              <input type="text" id="deal-pipeline-search" class="deal-pipeline-search-input" placeholder="Search deals by name, city, state, region, product type, or stage...">
+            </div>
+            <span class="deal-pipeline-count" id="deal-pipeline-count">0 deals</span>
+          </div>
+          
+          <div class="deal-pipeline-instructions">
+            <p><strong>How to use:</strong> Click on any field to edit. Changes are highlighted in yellow. Click "Save" on each row to save your changes, or use "Save All Changes" to save all modified rows at once. Use "Delete" to remove a deal.</p>
+          </div>
+
+          <div class="deal-pipeline-filter-sort" id="deal-pipeline-filter-sort"></div>
+          
+          <div class="deal-pipeline-table-container" id="deal-pipeline-table-container">
+            <!-- Deal Pipeline table will be rendered here -->
+            <div class="loading">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="modal-overlay" id="login-modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Admin Login</h2>
+          <button class="modal-close" id="close-login-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <form id="login-form">
+            <div class="form-group">
+              <label for="username">Username/Email:</label>
+              <input type="text" id="username" name="username" required autocomplete="username">
+            </div>
+            <div class="form-group">
+              <label for="password">Password:</label>
+              <input type="password" id="password" name="password" required autocomplete="current-password">
+            </div>
+            <div class="form-error" id="login-error" style="display: none;"></div>
+            <div class="form-actions">
+              <button type="submit" class="btn-primary">Login</button>
+              <button type="button" class="btn-secondary" id="cancel-login">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bank Details Modal -->
+    <div class="modal-overlay" id="bank-details-modal" style="display: none;">
+      <div class="modal-content modal-large" style="max-width: 800px;">
+        <div class="modal-header">
+          <h2 id="bank-details-title">Bank Information</h2>
+          <button class="modal-close" id="close-bank-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div id="bank-details-content">
+            <div class="loading">
+              <div class="loading-spinner"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Deal Edit Modal (Comprehensive) -->
+    <div class="modal-overlay" id="deal-edit-modal" style="display: none;">
+      <div class="modal-content modal-large" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+        <div class="modal-header">
+          <h2 id="deal-edit-title">Edit Deal</h2>
+          <button class="modal-close" id="close-deal-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <form id="deal-edit-form">
+            <h3 style="margin-top: 0; margin-bottom: 16px; color: var(--primary-green);">Core Information</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-project-name">Project Name *:</label>
+                <input type="text" id="edit-project-name" name="ProjectName" required>
+              </div>
+              <div class="form-group">
+                <label for="edit-stage">Stage *:</label>
+                <select id="edit-stage" name="Stage" required>
+                  <option value="Prospective">Prospective</option>
+                  <option value="Under Contract">Under Contract</option>
+                  <option value="Started">Started</option>
+                  <option value="Stabilized">Stabilized</option>
+                  <option value="Closed">Closed</option>
+                  <option value="Dead">Dead</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="edit-priority">Priority:</label>
+                <select id="edit-priority" name="Priority">
+                  <option value="">Select...</option>
+                  <option value="High">High</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Low">Low</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-city">City:</label>
+                <input type="text" id="edit-city" name="City">
+              </div>
+              <div class="form-group">
+                <label for="edit-state">State:</label>
+                <input type="text" id="edit-state" name="State" maxlength="2" placeholder="e.g., LA">
+              </div>
+              <div class="form-group">
+                <label for="edit-region">Region:</label>
+                <input type="text" id="edit-region" name="Region" placeholder="e.g., Gulf Coast">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-units">Units:</label>
+                <input type="number" id="edit-units" name="Units">
+              </div>
+              <div class="form-group">
+                <label for="edit-unit-count">Unit Count:</label>
+                <input type="number" id="edit-unit-count" name="UnitCount">
+              </div>
+              <div class="form-group">
+                <label for="edit-product-type">Product Type:</label>
+                <select id="edit-product-type" name="ProductType">
+                  <option value="">Select...</option>
+                  <option value="Prototype">Prototype</option>
+                  <option value="Heights">Heights</option>
+                  <option value="Flats">Flats</option>
+                  <option value="Heights/Flats">Heights/Flats</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+            
+            <h3 style="margin-top: 24px; margin-bottom: 16px; color: var(--primary-green);">Financial & Land Information</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-bank">Bank:</label>
+                <input type="text" id="edit-bank" name="Bank" class="external-source-field" data-source="Banking Dashboard" readonly style="background-color: #f5f5f5; cursor: not-allowed;" title="Read-only: Bank information is managed in the Banking Dashboard. Edit bank details there to update this field.">
+                <small style="display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px;">Read-only: Managed in Banking Dashboard</small>
+              </div>
+              <div class="form-group">
+                <label for="edit-acreage">Acreage:</label>
+                <input type="number" step="0.01" id="edit-acreage" name="Acreage">
+              </div>
+              <div class="form-group">
+                <label for="edit-land-price">Land Price:</label>
+                <input type="number" step="0.01" id="edit-land-price" name="LandPrice">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-sqft-price">Sq Ft Price (Auto-calculated):</label>
+                <input type="text" id="edit-sqft-price" name="SqFtPrice" class="auto-calculated-field" data-source="Auto-calculated" readonly style="background-color: #f5f5f5; cursor: not-allowed;" title="Read-only: Auto-calculated from Land Price and Acreage. Update those fields to recalculate.">
+                <small style="display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px;">Auto-calculated from Land Price and Acreage</small>
+              </div>
+              <div class="form-group">
+                <label for="edit-purchasing-entity">Purchasing Entity:</label>
+                <input type="text" id="edit-purchasing-entity" name="PurchasingEntity">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="display: flex; align-items: center; gap: 8px; padding-top: 20px;">
+                <input type="checkbox" id="edit-cash" name="Cash" style="width: auto;">
+                <label for="edit-cash" style="margin: 0;">Cash</label>
+              </div>
+              <div class="form-group" style="display: flex; align-items: center; gap: 8px; padding-top: 20px;">
+                <input type="checkbox" id="edit-opportunity-zone" name="OpportunityZone" style="width: auto;">
+                <label for="edit-opportunity-zone" style="margin: 0;">Opportunity Zone</label>
+              </div>
+            </div>
+            
+            <h3 style="margin-top: 24px; margin-bottom: 16px; color: var(--primary-green);">Dates</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-start-date">Start Date:</label>
+                <input type="date" id="edit-start-date" name="StartDate">
+              </div>
+              <div class="form-group">
+                <label for="edit-execution-date">Execution Date:</label>
+                <input type="date" id="edit-execution-date" name="ExecutionDate">
+              </div>
+              <div class="form-group">
+                <label for="edit-due-diligence-date">Due Diligence Date:</label>
+                <input type="date" id="edit-due-diligence-date" name="DueDiligenceDate">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-closing-date">Closing Date:</label>
+                <input type="date" id="edit-closing-date" name="ClosingDate">
+              </div>
+              <div class="form-group">
+                <label for="edit-construction-loan-closing">Construction Loan Closing Date:</label>
+                <input type="date" id="edit-construction-loan-closing" name="ConstructionLoanClosingDate">
+              </div>
+            </div>
+            
+            <h3 style="margin-top: 24px; margin-bottom: 16px; color: var(--primary-green);">Team & Notes</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-precon-manager">Pre-Con Manager:</label>
+                <select id="edit-precon-manager" name="PreConManagerId">
+                  <option value="">Select...</option>
+                  <!-- Will be populated with persons -->
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="edit-notes">Notes:</label>
+              <textarea id="edit-notes" name="Notes" rows="4"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="edit-closing-notes">Closing Notes:</label>
+              <textarea id="edit-closing-notes" name="ClosingNotes" rows="3"></textarea>
+            </div>
+            
+            <div class="form-error" id="deal-edit-error" style="display: none;"></div>
+            <div class="form-actions">
+              <button type="submit" class="btn-primary">Save</button>
+              <button type="button" class="btn-danger" id="delete-deal-btn" style="display: none;">Delete</button>
+              <button type="button" class="btn-secondary" id="cancel-deal-edit">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Leaflet.js for maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Configuration (load before API client) -->
+    <script src="config.js"></script>
+    
+    <!-- API Client -->
+    <!-- Pre-Con Manager Create Modal -->
+    <div class="modal-overlay" id="precon-manager-modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Create New Pre-Con Manager</h2>
+          <button class="modal-close" id="close-precon-manager-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <form id="precon-manager-form">
+            <div class="form-group">
+              <label for="precon-manager-name">Full Name *:</label>
+              <input type="text" id="precon-manager-name" name="FullName" required autocomplete="name">
+            </div>
+            <div class="form-group">
+              <label for="precon-manager-email">Email:</label>
+              <input type="email" id="precon-manager-email" name="Email" autocomplete="email">
+            </div>
+            <div class="form-group">
+              <label for="precon-manager-phone">Phone Number:</label>
+              <input type="tel" id="precon-manager-phone" name="PhoneNumber" autocomplete="tel">
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn-secondary" id="cancel-precon-manager-btn">Cancel</button>
+              <button type="submit" class="btn-primary">Create Pre-Con Manager</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Stage Selection Modal -->
+    <div class="modal-overlay" id="export-stage-modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Select Deal Stages to Export</h2>
+          <button class="modal-close" id="close-export-stage-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Select one or more stages:</label>
+            <div id="export-stage-checkboxes" style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+              <!-- Checkboxes will be populated by JavaScript -->
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn-secondary" id="cancel-export-stage-btn">Cancel</button>
+            <button type="button" class="btn-primary" id="continue-export-stage-btn" disabled>Continue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export Type Selection Modal -->
+    <div class="modal-overlay" id="export-type-modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Select Export Type</h2>
+          <button class="modal-close" id="close-export-type-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Who is this export for?</label>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 12px; border: 2px solid var(--border-color); border-radius: 4px;">
+                <input type="radio" name="export-type" value="internal" checked style="width: auto;">
+                <div>
+                  <strong>Internal Use</strong>
+                  <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">Includes all columns</div>
+                </div>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 12px; border: 2px solid var(--border-color); border-radius: 4px;">
+                <input type="radio" name="export-type" value="investors" style="width: auto;">
+                <div>
+                  <strong>Investors</strong>
+                  <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">Excludes: Due Diligence Date, Land Price, Sq Ft Price, Opportunity Zone</div>
+                </div>
+              </label>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn-secondary" id="cancel-export-type-btn">Cancel</button>
+            <button type="button" class="btn-primary" id="continue-export-type-btn">Export</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="api-client.js"></script>
+    
+    <!-- domo.js optional utils -->
+    <script src="https://unpkg.com/ryuu.js@4.6.0/dist/domo.js" integrity="sha384-YYsd9wQ+wDlUWhvpfGdptxmNYIqBC+52oJtWgPKJadbs3sSFTY/+ZotPbEHTTRWz" crossorigin="anonymous"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

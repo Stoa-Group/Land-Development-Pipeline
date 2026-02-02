@@ -1,0 +1,564 @@
+{
+   "id": "18a167b9-a69c-4093-a407-1536d28916fb",
+   "name": "Banking Dashboard",
+   "version": "0.0.1",
+   "datasetsMapping": [
+      {
+         "dataSetId": "cfb8336a-dd07-4c1b-bce4-8548ac0a2a2f",
+         "alias": "ProcoreProjects",
+         "fields": [
+            {
+               "alias": "actualstartdate",
+               "columnName": "actual_start_date"
+            },
+            {
+               "alias": "address",
+               "columnName": "address"
+            },
+            {
+               "alias": "city",
+               "columnName": "city"
+            },
+            {
+               "alias": "state",
+               "columnName": "state_name"
+            },
+            {
+               "alias": "county",
+               "columnName": "county"
+            },
+            {
+               "alias": "latitude",
+               "columnName": "latitude"
+            },
+            {
+               "alias": "longitude",
+               "columnName": "longitude"
+            },
+            {
+               "alias": "name",
+               "columnName": "name"
+            },
+            {
+               "alias": "notes",
+               "columnName": "notes"
+            },
+            {
+               "alias": "projectedfinishdate",
+               "columnName": "projected_finish_date"
+            },
+            {
+               "alias": "region",
+               "columnName": "region"
+            },
+            {
+               "alias": "zip",
+               "columnName": "zip"
+            },
+            {
+               "alias": "schedulelastupdated",
+               "columnName": "schedule_last_updated"
+            },
+            {
+               "alias": "schedulepercentcompletion",
+               "columnName": "schedule_percent_completion"
+            },
+            {
+               "alias": "actualcompletiondate",
+               "columnName": "actual_completion_date"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "7962d418-3b3e-4549-b194-568355a5c430",
+         "alias": "banktargets",
+         "fields": [
+            {
+               "alias": "BankTargetId",
+               "columnName": "BankTargetId"
+            },
+            {
+               "alias": "BankId",
+               "columnName": "BankId"
+            },
+            {
+               "alias": "AssetsText",
+               "columnName": "AssetsText"
+            },
+            {
+               "alias": "City",
+               "columnName": "City"
+            },
+            {
+               "alias": "State",
+               "columnName": "State"
+            },
+            {
+               "alias": "ExposureWithStoa",
+               "columnName": "ExposureWithStoa"
+            },
+            {
+               "alias": "ContactText",
+               "columnName": "ContactText"
+            },
+            {
+               "alias": "Comments",
+               "columnName": "Comments"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "f90f36a9-9231-42b4-8f75-88c9116d22a4",
+         "alias": "guarentees",
+         "fields": [
+            {
+               "alias": "GuaranteeId",
+               "columnName": "GuaranteeId"
+            },
+            {
+               "alias": "ProjectId",
+               "columnName": "ProjectId"
+            },
+            {
+               "alias": "LoanId",
+               "columnName": "LoanId"
+            },
+            {
+               "alias": "PersonId",
+               "columnName": "PersonId"
+            },
+            {
+               "alias": "GuaranteePercent",
+               "columnName": "GuaranteePercent"
+            },
+            {
+               "alias": "GuaranteeAmount",
+               "columnName": "GuaranteeAmount"
+            },
+            {
+               "alias": "Notes",
+               "columnName": "Notes"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "0c09c092-ed53-4ac3-b132-d0b5c848f79a",
+         "alias": "participations",
+         "fields": [
+            {
+               "alias": "ParticipationId",
+               "columnName": "ParticipationId"
+            },
+            {
+               "alias": "ProjectId",
+               "columnName": "ProjectId"
+            },
+            {
+               "alias": "LoanId",
+               "columnName": "LoanId"
+            },
+            {
+               "alias": "BankId",
+               "columnName": "BankId"
+            },
+            {
+               "alias": "ParticipationPercent",
+               "columnName": "ParticipationPercent"
+            },
+            {
+               "alias": "ExposureAmount",
+               "columnName": "ExposureAmount"
+            },
+            {
+               "alias": "PaidOff",
+               "columnName": "PaidOff"
+            },
+            {
+               "alias": "Notes",
+               "columnName": "Notes"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "0ff7d925-02b5-4b48-b3e3-0513deb0d527",
+         "alias": "liquidityrequirements",
+         "fields": [
+            {
+               "alias": "LiquidityRequirementId",
+               "columnName": "LiquidityRequirementId"
+            },
+            {
+               "alias": "ProjectId",
+               "columnName": "ProjectId"
+            },
+            {
+               "alias": "LoanId",
+               "columnName": "LoanId"
+            },
+            {
+               "alias": "TotalAmount",
+               "columnName": "TotalAmount"
+            },
+            {
+               "alias": "LendingBankAmount",
+               "columnName": "LendingBankAmount"
+            },
+            {
+               "alias": "Notes",
+               "columnName": "Notes"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "63d4c847-74e5-4f39-827f-c162138c1a73",
+         "alias": "covenants",
+         "fields": [
+            {
+               "alias": "CovenantId",
+               "columnName": "CovenantId"
+            },
+            {
+               "alias": "ProjectId",
+               "columnName": "ProjectId"
+            },
+            {
+               "alias": "LoanId",
+               "columnName": "LoanId"
+            },
+            {
+               "alias": "CovenantType",
+               "columnName": "CovenantType"
+            },
+            {
+               "alias": "CovenantDate",
+               "columnName": "CovenantDate"
+            },
+            {
+               "alias": "Requirement",
+               "columnName": "Requirement"
+            },
+            {
+               "alias": "ProjectedValue",
+               "columnName": "ProjectedValue"
+            },
+            {
+               "alias": "Notes",
+               "columnName": "Notes"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "2e317c7e-3ce2-4960-a86e-c5bef211aac1",
+         "alias": "DSCRtests",
+         "fields": [
+            {
+               "alias": "DSCRTestId",
+               "columnName": "DSCRTestId"
+            },
+            {
+               "alias": "ProjectId",
+               "columnName": "ProjectId"
+            },
+            {
+               "alias": "LoanId",
+               "columnName": "LoanId"
+            },
+            {
+               "alias": "TestNumber",
+               "columnName": "TestNumber"
+            },
+            {
+               "alias": "TestDate",
+               "columnName": "TestDate"
+            },
+            {
+               "alias": "ProjectedInterestRate",
+               "columnName": "ProjectedInterestRate"
+            },
+            {
+               "alias": "Requirement",
+               "columnName": "Requirement"
+            },
+            {
+               "alias": "ProjectedValue",
+               "columnName": "ProjectedValue"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "f84d6034-8dbd-4229-abb0-4c31c12f0a05",
+         "alias": "loans",
+         "fields": [
+            {
+               "alias": "LoanId",
+               "columnName": "LoanId"
+            },
+            {
+               "alias": "ProjectId",
+               "columnName": "ProjectId"
+            },
+            {
+               "alias": "BirthOrder",
+               "columnName": "BirthOrder"
+            },
+            {
+               "alias": "LoanType",
+               "columnName": "LoanType"
+            },
+            {
+               "alias": "Borrower",
+               "columnName": "Borrower"
+            },
+            {
+               "alias": "LoanPhase",
+               "columnName": "LoanPhase"
+            },
+            {
+               "alias": "LenderId",
+               "columnName": "LenderId"
+            },
+            {
+               "alias": "LoanAmount",
+               "columnName": "LoanAmount"
+            },
+            {
+               "alias": "LoanClosingDate",
+               "columnName": "LoanClosingDate"
+            },
+            {
+               "alias": "MaturityDate",
+               "columnName": "MaturityDate"
+            },
+            {
+               "alias": "FixedOrFloating",
+               "columnName": "FixedOrFloating"
+            },
+            {
+               "alias": "IndexName",
+               "columnName": "IndexName"
+            },
+            {
+               "alias": "Spread",
+               "columnName": "Spread"
+            },
+            {
+               "alias": "InterestRate",
+               "columnName": "InterestRate"
+            },
+            {
+               "alias": "MiniPermMaturity",
+               "columnName": "MiniPermMaturity"
+            },
+            {
+               "alias": "MiniPermInterestRate",
+               "columnName": "MiniPermInterestRate"
+            },
+            {
+               "alias": "PermPhaseMaturity",
+               "columnName": "PermPhaseMaturity"
+            },
+            {
+               "alias": "PermPhaseInterestRate",
+               "columnName": "PermPhaseInterestRate"
+            },
+            {
+               "alias": "ConstructionCompletionDate",
+               "columnName": "ConstructionCompletionDate"
+            },
+            {
+               "alias": "LeaseUpCompletedDate",
+               "columnName": "LeaseUpCompletedDate"
+            },
+            {
+               "alias": "IOMaturityDate",
+               "columnName": "IOMaturityDate"
+            },
+            {
+               "alias": "PermanentCloseDate",
+               "columnName": "PermanentCloseDate"
+            },
+            {
+               "alias": "PermanentLoanAmount",
+               "columnName": "PermanentLoanAmount"
+            },
+            {
+               "alias": "Notes",
+               "columnName": "Notes"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "12c32c31-a151-4e04-b202-09a8308f4613",
+         "alias": "people",
+         "fields": [
+            {
+               "alias": "PersonId",
+               "columnName": "PersonId"
+            },
+            {
+               "alias": "FullName",
+               "columnName": "FullName"
+            },
+            {
+               "alias": "Email",
+               "columnName": "Email"
+            },
+            {
+               "alias": "Phone",
+               "columnName": "Phone"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "e18dc889-9e30-4fdd-bc5d-61f4cd60c706",
+         "alias": "Banks",
+         "fields": [
+            {
+               "alias": "BankId",
+               "columnName": "BankId"
+            },
+            {
+               "alias": "BankName",
+               "columnName": "BankName"
+            },
+            {
+               "alias": "City",
+               "columnName": "City"
+            },
+            {
+               "alias": "State",
+               "columnName": "State"
+            },
+            {
+               "alias": "Notes",
+               "columnName": "Notes"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "28592ea8-c77a-42bd-8362-f40f9ce89864",
+         "alias": "projects",
+         "fields": [
+            {
+               "alias": "ProjectId",
+               "columnName": "ProjectId"
+            },
+            {
+               "alias": "ProjectName",
+               "columnName": "ProjectName"
+            },
+            {
+               "alias": "City",
+               "columnName": "City"
+            },
+            {
+               "alias": "State",
+               "columnName": "State"
+            },
+            {
+               "alias": "Region",
+               "columnName": "Region"
+            },
+            {
+               "alias": "Location",
+               "columnName": "Location"
+            },
+            {
+               "alias": "Units",
+               "columnName": "Units"
+            },
+            {
+               "alias": "ProductType",
+               "columnName": "ProductType"
+            },
+            {
+               "alias": "Stage",
+               "columnName": "Stage"
+            },
+            {
+               "alias": "EstimatedConstructionStartDate",
+               "columnName": "EstimatedConstructionStartDate"
+            },
+            {
+               "alias": "CreatedAt",
+               "columnName": "CreatedAt"
+            },
+            {
+               "alias": "UpdatedAt",
+               "columnName": "UpdatedAt"
+            }
+         ],
+         "dql": null
+      },
+      {
+         "dataSetId": "b71abe2e-4484-434d-af06-e708ba57f768",
+         "alias": "MMRData",
+         "fields": [
+            {
+               "alias": "Property",
+               "columnName": "Property"
+            },
+            {
+               "alias": "Location",
+               "columnName": "Location"
+            },
+            {
+               "alias": "City",
+               "columnName": "City"
+            },
+            {
+               "alias": "State",
+               "columnName": "State"
+            },
+            {
+               "alias": "Status",
+               "columnName": "Status"
+            },
+            {
+               "alias": "ProductType",
+               "columnName": "Product Type"
+            },
+            {
+               "alias": "FullAddress",
+               "columnName": "Full Address"
+            },
+            {
+               "alias": "Latitude",
+               "columnName": "Latitude "
+            },
+            {
+               "alias": "Longitude",
+               "columnName": "Longitude"
+            },
+            {
+               "alias": "Region",
+               "columnName": "Region"
+            },
+            {
+               "alias": "LatestConstructionStatus",
+               "columnName": "Latest Construction Status"
+            },
+            {
+               "alias": "BirthOrder",
+               "columnName": "Birth Order"
+            }
+         ],
+         "dql": null
+      }
+   ],
+   "size": {
+      "width": 1,
+      "height": 1
+   },
+   "fullpage": true
+}
