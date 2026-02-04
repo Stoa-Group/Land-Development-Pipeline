@@ -638,23 +638,34 @@ const STAGE_DISPLAY_ORDER = [
     'Dead'
 ];
 
-// Stage configuration with colors
+// Lifecycle order for Unit Summary "Total Units by Stage" (active pipeline → end states)
+const UNIT_SUMMARY_STAGE_ORDER = [
+    'Under Contract',
+    'Under Construction',
+    'Lease-Up',
+    'Stabilized',
+    'Liquidated',
+    'Commercial Land - Listed',
+    'Dead'
+];
+
+// Stage configuration with colors (per user: map/list and legend)
 const STAGE_CONFIG = {
-    'Prospective': { class: 'prospective', color: '#8b5cf6' },
-    'Under Review': { class: 'under-review', color: '#6366f1' },
-    'Under Contract': { class: 'under-contract', color: '#2563eb' },
-    'Under Construction': { class: 'under-construction', color: '#ef4444' },
-    'Started': { class: 'started', color: '#ef4444' }, // Alias for Under Construction
-    'Lease-Up': { class: 'lease-up', color: '#f59e0b' },
-    'Lease-up': { class: 'lease-up', color: '#f59e0b' }, // Alias for Lease-Up
-    'Stabilized': { class: 'stabilized', color: '#f59e0b' },
-    'Liquidated': { class: 'liquidated', color: '#10b981' },
-    'Closed': { class: 'closed', color: '#10b981' }, // Alias for Liquidated
-    'Commercial Land Listed': { class: 'commercial-land-listed', color: '#6b7280' },
-    'Commercial Land - Listed': { class: 'commercial-land-listed', color: '#6b7280' }, // Alias with hyphen (grey, same as Dead/Rejected)
-    'Rejected': { class: 'rejected', color: '#6b7280' },
-    'Dead': { class: 'dead', color: '#6b7280' },
-    'Other': { class: 'other', color: '#9ca3af' },
+    'Prospective': { class: 'prospective', color: '#c026d3' }, // magenta
+    'Under Review': { class: 'under-review', color: '#9333ea' }, // purple
+    'Under Contract': { class: 'under-contract', color: '#dc2626' }, // red
+    'Under Construction': { class: 'under-construction', color: '#ea580c' }, // orange
+    'Started': { class: 'started', color: '#ea580c' }, // Alias for Under Construction
+    'Lease-Up': { class: 'lease-up', color: '#eab308' }, // yellow
+    'Lease-up': { class: 'lease-up', color: '#eab308' }, // Alias for Lease-Up
+    'Stabilized': { class: 'stabilized', color: '#22c55e' }, // green
+    'Liquidated': { class: 'liquidated', color: '#ffffff', borderColor: '#000000' }, // white with black border
+    'Closed': { class: 'closed', color: '#ffffff', borderColor: '#000000' }, // Alias for Liquidated
+    'Commercial Land Listed': { class: 'commercial-land-listed', color: '#14b8a6' }, // turquoise
+    'Commercial Land - Listed': { class: 'commercial-land-listed', color: '#14b8a6' }, // turquoise
+    'Rejected': { class: 'rejected', color: '#6b7280' }, // grey
+    'Dead': { class: 'dead', color: '#6b7280' }, // grey
+    'Other': { class: 'other', color: '#78716c' },
     'START': { class: 'start', color: '#f97316' }
 };
 
@@ -665,7 +676,7 @@ window.allDeals = allDeals;
 let procoreProjectMap = {}; // Map of project name -> { actualstartdate, ... }
 let currentView = 'overview';
 let currentFilters = {
-    stage: '', // Single stage filter; '' = all (with default exclusions on non-overview)
+    stages: [], // Multi-select stage filter; [] = all (with default exclusions on non-overview)
     location: '',
     bank: '',
     product: '',
@@ -681,6 +692,7 @@ let listViewMode = 'timeline'; // 'timeline' or 'stage' - timeline shows by quar
 window.productTypeSort = window.productTypeSort || { by: 'name', order: 'asc' }; // Sort config for product type view
 window.bankSort = window.bankSort || { by: 'name', order: 'asc' }; // Sort config for bank view
 window.listViewSort = window.listViewSort || { by: 'name', order: 'asc' }; // Sort config for list view (stage groups)
+window.dealFilesTableSort = window.dealFilesTableSort || { by: 'name', order: 'asc' }; // Sort config for Deal Files table
 let mapInstance = null;
 let mapMarkers = []; // Store markers with deal data
 let visibleDealsForMap = []; // Deals currently visible on map
@@ -853,6 +865,14 @@ function getDealLocation(deal) {
         return location.trim();
     }
     return null;
+}
+
+// Get state from deal location (e.g. "Baton Rouge, LA" -> "LA")
+function getDealState(deal) {
+    const location = getDealLocation(deal);
+    if (!location) return '';
+    const stateMatch = location.match(/,\s*([A-Za-z]{2})$/);
+    return stateMatch ? stateMatch[1].trim().toUpperCase() : '';
 }
 
 // Get product type from deal (checking all possible field variations)
@@ -1169,7 +1189,14 @@ function mapDealPipelineDataToDeal(dbDeal, loansMap = {}, banksMap = {}) {
         ConstructionLoanClosingDate: dbDeal.ConstructionLoanClosingDate || null,
         PurchasingEntity: dbDeal.PurchasingEntity || null,
         Cash: dbDeal.Cash || false,
-        OpportunityZone: dbDeal.OpportunityZone || false
+        OpportunityZone: dbDeal.OpportunityZone || false,
+        // Land development pipeline attributes (optional)
+        BrokerReferralContactId: dbDeal.BrokerReferralContactId || null,
+        BrokerReferralName: (dbDeal.BrokerReferralContact && (dbDeal.BrokerReferralContact.Name || dbDeal.BrokerReferralContact.ManagerName)) || dbDeal.BrokerReferralSource || null,
+        PriceRaw: dbDeal.PriceRaw ?? dbDeal.Price_raw ?? null,
+        ListingStatus: dbDeal.ListingStatus || null,
+        Zoning: dbDeal.Zoning || null,
+        CountyParish: dbDeal.County || dbDeal.CountyParish || null
     };
 }
 
@@ -1415,11 +1442,15 @@ function applyFilters(deals, excludeStart = true, forOverview = false) {
             return false;
         }
         // When no stage filter is selected, exclude default stages (except on overview)
-        if (!currentFilters.stage && !forOverview && DEFAULT_EXCLUDED_STAGES.includes(stage)) {
+        if (currentFilters.stages.length === 0 && !forOverview && DEFAULT_EXCLUDED_STAGES.includes(stage)) {
             return false;
         }
-        // When a stage is selected, show only that stage
-        if (currentFilters.stage && stage !== currentFilters.stage) return false;
+        // When stages are selected, show only those stages (normalize filter values so 4+ selections work reliably)
+        if (currentFilters.stages.length > 0) {
+            const selectedStages = Array.isArray(currentFilters.stages) ? currentFilters.stages : [];
+            const normalizedSelected = new Set(selectedStages.map(s => normalizeStage(String(s).trim())));
+            if (normalizedSelected.size > 0 && !normalizedSelected.has(stage)) return false;
+        }
         
         // Location filter
         if (currentFilters.location && location !== currentFilters.location) return false;
@@ -2019,12 +2050,12 @@ function renderDealListByStage(deals) {
 
 // Setup drill-down click handlers
 function setupDrillDownHandlers() {
-    // Stage badge clicks
+    // Stage badge clicks – filter to this stage (add to multi-select)
     document.querySelectorAll('.stage-badge.clickable').forEach(badge => {
         badge.addEventListener('click', function(e) {
             e.stopPropagation();
             const stage = this.dataset.stage;
-            currentFilters.stage = stage;
+            if (!currentFilters.stages.includes(stage)) currentFilters.stages = [...currentFilters.stages, stage];
             updateFiltersUI();
             switchView('list', allDeals);
         });
@@ -2116,12 +2147,12 @@ function setupDrillDownHandlers() {
         });
     });
     
-    // Stage breakdown item clicks (entire row)
+    // Stage breakdown item clicks (entire row) – add stage to multi-select
     document.querySelectorAll('.breakdown-item[data-stage]').forEach(item => {
         item.addEventListener('click', function(e) {
             e.stopPropagation();
             const stage = this.dataset.stage;
-            currentFilters.stage = stage;
+            if (!currentFilters.stages.includes(stage)) currentFilters.stages = [...currentFilters.stages, stage];
             updateFiltersUI();
             switchView('list', allDeals);
         });
@@ -2194,7 +2225,9 @@ function setupDrillDownHandlers() {
         });
     });
     
-    // Quick filter dropdown change handlers (state, stage, product, year)
+    // (Stage checkbox change and dropdown toggle are registered once in initStageFilterDropdowns().)
+
+    // Quick filter dropdown change handlers (state, product, year)
     document.body.addEventListener('change', function(e) {
         if (e.target.classList.contains('quick-filter-dropdown')) {
             const filterType = e.target.id.replace('-filter-dropdown', '');
@@ -2202,10 +2235,7 @@ function setupDrillDownHandlers() {
             
             if (filterType === 'state') {
                 currentFilters.state = filterValue;
-            } else if (filterType === 'stage') {
-                if (filterValue === 'START') currentFilters.stage = '';
-                else currentFilters.stage = filterValue;
-            } else if (filterType === 'product') {
+            } else if (filterType === 'product') { 
                 currentFilters.product = filterValue;
             } else if (filterType === 'year') {
                 currentFilters.year = filterValue;
@@ -2216,15 +2246,18 @@ function setupDrillDownHandlers() {
         }
     });
     
-    // Timeline year filter button clicks
+    // Timeline year filter button clicks (debounced to prevent freeze on rapid clicks)
+    var timelineYearDebounceTimer = null;
+    var timelineYearDebounceMs = 120;
     document.body.addEventListener('click', function(e) {
         if (e.target.classList.contains('quick-filter-btn') && e.target.closest('.timeline-year-filter')) {
             e.preventDefault();
             e.stopPropagation();
             const filterValue = e.target.dataset.filterValue || '';
+            if (currentFilters.year === filterValue) return;
             currentFilters.year = filterValue;
             
-            // Update active state of all year filter buttons
+            // Update active state of all year filter buttons immediately
             const timelineYearFilter = e.target.closest('.timeline-year-filter');
             if (timelineYearFilter) {
                 timelineYearFilter.querySelectorAll('.quick-filter-btn').forEach(btn => {
@@ -2232,15 +2265,18 @@ function setupDrillDownHandlers() {
                 });
             }
             
-            // Refresh timeline view directly (don't use switchView to avoid auto-setting year)
-            const container = document.getElementById('deal-list-container');
-            if (container && currentView === 'timeline') {
-                container.innerHTML = renderTimeline(allDeals);
-                setupDrillDownHandlers();
-            } else {
-                // If not on timeline view, switch to it
-            switchView('timeline', allDeals);
-            }
+            // Debounce the expensive re-render so rapid clicks don't queue multiple full renders
+            if (timelineYearDebounceTimer) clearTimeout(timelineYearDebounceTimer);
+            timelineYearDebounceTimer = setTimeout(function() {
+                timelineYearDebounceTimer = null;
+                const container = document.getElementById('deal-list-container');
+                if (container && currentView === 'timeline') {
+                    container.innerHTML = renderTimeline(allDeals);
+                    setupDrillDownHandlers();
+                } else {
+                    switchView('timeline', allDeals);
+                }
+            }, timelineYearDebounceMs);
         }
     });
     
@@ -2489,15 +2525,24 @@ function renderOverview(deals) {
                         `).join('')}
                     </select>
                 </div>
-                <div class="quick-filter-group">
-                    <label for="stage-filter-dropdown">Filter by Stage:</label>
-                    <select id="stage-filter-dropdown" class="quick-filter-dropdown">
-                        <option value="">All Stages</option>
-                        ${stages
-                            .filter(s => s !== 'START' && s.toLowerCase() !== 'start' && !s.includes('START'))
-                            .map(s => `<option value="${s.replace(/"/g, '&quot;')}" ${currentFilters.stage === s ? 'selected' : ''}>${s}</option>`)
-                            .join('')}
-                    </select>
+                <div class="quick-filter-group overview-stage-filter-group">
+                    <label>Filter by Stage:</label>
+                    <div class="stage-filter-dropdown-wrap overview-stage-dropdown-wrap">
+                        <button type="button" class="stage-filter-trigger overview-stage-filter-trigger" id="overview-stage-filter-trigger" aria-haspopup="true" aria-expanded="false" onclick="event.preventDefault(); event.stopPropagation(); window.toggleOverviewStageDropdown && window.toggleOverviewStageDropdown();">${(currentFilters.stages && currentFilters.stages.length > 0) ? (currentFilters.stages.length <= 2 ? currentFilters.stages.join(', ') : currentFilters.stages.length + ' stages') : 'All Stages'}</button>
+                        <div class="stage-filter-dropdown-panel overview-stage-filter-dropdown-panel" id="overview-stage-filter-dropdown-panel" role="menu" aria-hidden="true" style="display: none;">
+                            <div class="stage-filter-checkboxes" id="overview-stage-filter-checkboxes">
+                                ${stages
+                                    .filter(s => s !== 'START' && s.toLowerCase() !== 'start' && !s.includes('START'))
+                                    .map(s => {
+                                        const checked = (currentFilters.stages && currentFilters.stages.includes(s)) ? ' checked' : '';
+                                        const safe = s.replace(/"/g, '&quot;');
+                                        return `<label class="stage-filter-checkbox-label"><input type="checkbox" class="stage-filter-checkbox" value="${safe}"${checked}> ${s}</label>`;
+                                    })
+                                    .join('')}
+                            </div>
+                            <button type="button" class="stage-filter-clear-btn overview-stage-clear-btn">Clear</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="quick-filter-group">
                     <label for="product-filter-dropdown">Filter by Product Type:</label>
@@ -2750,7 +2795,12 @@ function renderMapTable(deals) {
         grouped[location].push(deal);
     });
     
-    const locations = Object.keys(grouped).filter(l => l !== 'Unknown').sort();
+    // Include all locations (including Unknown) so every deal appears in the list; put Unknown last
+    const locations = Object.keys(grouped).sort((a, b) => {
+        if (a === 'Unknown') return 1;
+        if (b === 'Unknown') return -1;
+        return a.localeCompare(b);
+    });
     
     // Actions header (only show if authenticated and in edit mode)
     const actionsHeader = (isAuthenticated && isEditMode) ? '<th>Actions</th>' : '';
@@ -2796,10 +2846,23 @@ function renderMapTable(deals) {
 
 // Update table based on all deals with markers on the map (not just viewport)
 function updateMapTable() {
+    const tableContainer = document.getElementById('map-table-container');
+    if (!tableContainer) return;
+
     if (!mapInstance || mapMarkers.length === 0) {
-        // If no markers, show empty table
-        const tableContainer = document.getElementById('map-table-container');
-        if (tableContainer) {
+        // No markers yet (e.g. initMap not done) – fall back to filtered deals so list view still shows data
+        let dealsToShow = visibleDealsForMap && visibleDealsForMap.length > 0 ? visibleDealsForMap : [];
+        if (dealsToShow.length === 0 && typeof allDeals !== 'undefined' && allDeals.length > 0) {
+            const filtered = applyFilters(allDeals, true);
+            dealsToShow = filtered.filter(deal => {
+                const loc = getDealLocation(deal);
+                return loc && loc !== 'Unknown';
+            });
+        }
+        if (dealsToShow.length > 0) {
+            tableContainer.innerHTML = renderMapTable(dealsToShow);
+            setupDrillDownHandlers();
+        } else {
             tableContainer.innerHTML = '<div class="empty-state">No deals match the current filters</div>';
         }
         return;
@@ -2833,11 +2896,8 @@ function updateMapTable() {
     visibleDealsForMap = uniqueDeals;
     
     // Update the table container
-    const tableContainer = document.getElementById('map-table-container');
-    if (tableContainer) {
-        tableContainer.innerHTML = renderMapTable(uniqueDeals);
-        setupDrillDownHandlers();
-    }
+    tableContainer.innerHTML = renderMapTable(uniqueDeals);
+    setupDrillDownHandlers();
 }
 
 // Render by Location with Map
@@ -2849,19 +2909,36 @@ function renderByLocation(deals) {
         return location && location !== 'Unknown';
     });
     
-    // Create map
     const mapHtml = `
         ${renderActiveFilters()}
-        <div id="map-controls-container" style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px;">
-            <button id="toggle-map-btn" class="toggle-map-btn" style="padding: 8px 16px; background-color: var(--primary-green, #7e8a6b); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">
-                Hide Map
-            </button>
-            <button id="exit-city-view-btn" class="exit-city-view-btn" style="display: none; padding: 8px 16px; background-color: var(--secondary-grey, #efeff1); color: var(--text-primary, #1f2937); border: 1px solid var(--border-color, #e5e7eb); border-radius: 4px; cursor: pointer;">
-                Exit City View
-            </button>
+        <div class="map-view-panel view-split" id="map-view-panel">
+            <div id="map-controls-container" class="map-controls">
+                <div class="map-view-toggle" role="group" aria-label="Map, split, or list view">
+                    <button type="button" class="map-view-toggle-btn" id="map-view-map-btn" data-view="map" aria-pressed="false">Map</button>
+                    <button type="button" class="map-view-toggle-btn active" id="map-view-split-btn" data-view="split" aria-pressed="true">Split</button>
+                    <button type="button" class="map-view-toggle-btn" id="map-view-list-btn" data-view="list" aria-pressed="false">List</button>
+                </div>
+                <div class="map-search-row">
+                    <label for="map-location-search" class="map-search-label">Enter a location</label>
+                    <input type="text" id="map-location-search" class="map-location-search-input" placeholder="e.g. Baton Rouge, LA or New Orleans" autocomplete="off" />
+                    <button type="button" id="map-location-search-btn" class="map-btn map-btn-primary" aria-label="Go to location">Go</button>
+                </div>
+                <div class="map-toolbar">
+                    <button id="toggle-map-btn" class="map-btn map-btn-secondary" style="display: none;">Hide Map</button>
+                    <button id="exit-city-view-btn" class="map-btn map-btn-secondary exit-city-view-btn" style="display: none;">Exit City View</button>
+                    <button id="map-fit-all-btn" class="map-btn map-btn-primary" title="Fit map to show all deals">Fit All Deals</button>
+                    <button id="map-fullscreen-btn" class="map-btn map-btn-secondary" title="Expand map to full screen" aria-label="Full screen">Full screen</button>
+                </div>
+            </div>
+            <div class="map-split-wrap" id="map-split-wrap">
+                <div class="map-canvas-container" id="map-canvas-container">
+                    <div id="location-map" class="location-map-canvas"></div>
+                    <div id="map-legend" class="map-legend" style="display: none;" aria-hidden="true"></div>
+                    <button type="button" class="map-fullscreen-exit" id="map-fullscreen-exit-btn" aria-label="Exit full screen" style="display: none;">Exit full screen</button>
+                </div>
+                <div id="map-table-container" class="map-table-container"></div>
+            </div>
         </div>
-        <div id="location-map" style="height: 500px; width: 100%; margin-bottom: 24px; border-radius: 8px; overflow: hidden;"></div>
-        <div id="map-table-container"></div>
     `;
     
     return mapHtml;
@@ -2888,13 +2965,33 @@ async function initMap(deals) {
         return location && location !== 'Unknown';
     });
     
-    // Initialize map with default view (will fit to markers after they're added)
-    mapInstance = L.map('location-map').setView([35.0, -90.0], 5);
+    // Restrict map to continental US only; default view centered on US
+    const DEFAULT_MAP_CENTER = [39.5, -98.5]; // Center of continental US
+    const DEFAULT_MAP_ZOOM = 4;
+    const US_BOUNDS = L.latLngBounds([[24, -125], [49, -66]]); // Continental US (SW to NE)
+    mapInstance = L.map('location-map', {
+        center: DEFAULT_MAP_CENTER,
+        zoom: DEFAULT_MAP_ZOOM,
+        maxBounds: US_BOUNDS,
+        maxBoundsViscosity: 1.0
+    });
     
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
     }).addTo(mapInstance);
     
+    // City view only when All Stages and no other filters; otherwise individual markers color-coded by stage
+    const useCityView = currentFilters.stages.length === 0 &&
+        !currentFilters.state && !currentFilters.bank && !currentFilters.product && !currentFilters.search;
+    
+    const legendEl = document.getElementById('map-legend');
+    if (legendEl) {
+        legendEl.style.display = useCityView ? 'none' : 'block';
+        legendEl.setAttribute('aria-hidden', useCityView ? 'true' : 'false');
+    }
+    
+    if (useCityView) {
+    // --- City view: one marker per location (decluttered) ---
     const locationGroups = {};
     allDealsForMap.forEach(deal => {
         const location = getDealLocation(deal);
@@ -2906,8 +3003,6 @@ async function initMap(deals) {
         }
     });
     
-    // Create markers and store deal data
-    // Use Promise.all to handle async geocoding
     const markerPromises = Object.keys(locationGroups).map(async (location) => {
         const locationDeals = locationGroups[location];
         
@@ -3021,17 +3116,78 @@ async function initMap(deals) {
         return null;
     });
     
-    // Wait for all geocoding to complete
     const markerResults = await Promise.all(markerPromises);
-    const validMarkers = markerResults.filter(m => m !== null);
+    } else {
+    // --- Individual markers: one per deal, color by stage, with legend ---
+    function getDealCoords(deal) {
+        let lat = null, lng = null;
+        if (deal.latitude != null && deal.longitude != null) {
+            lat = parseFloat(deal.latitude);
+            lng = parseFloat(deal.longitude);
+        } else if (deal.Latitude != null && deal.Longitude != null) {
+            lat = parseFloat(deal.Latitude);
+            lng = parseFloat(deal.Longitude);
+        }
+        if (lat != null && !isNaN(lat) && lng != null && !isNaN(lng) && lat !== 0 && lng !== 0) return [lat, lng];
+        return null;
+    }
+    const locationToCoords = {};
+    const locationsToGeocode = [...new Set(allDealsForMap.map(d => getDealLocation(d)).filter(Boolean))];
+    await Promise.all(locationsToGeocode.map(async (loc) => {
+        if (locationToCoords[loc]) return;
+        const c = getDealCoords(allDealsForMap.find(d => getDealLocation(d) === loc)) || await geocodeLocation(loc);
+        if (c) locationToCoords[loc] = c;
+    }));
+    const locationIndex = {};
+    const stagesInMap = new Set();
+    allDealsForMap.forEach(deal => {
+        const loc = getDealLocation(deal);
+        if (!loc) return;
+        const coords = locationToCoords[loc];
+        if (!coords) return;
+        const idx = (locationIndex[loc] || 0);
+        locationIndex[loc] = idx + 1;
+        const offset = idx * 0.002;
+        const latLng = [coords[0] + offset, coords[1]];
+        const stage = normalizeStage(deal.Stage || deal.stage);
+        const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
+        const fillColor = stageConfig.color || '#8b5cf6';
+        const strokeColor = stageConfig.borderColor != null ? stageConfig.borderColor : '#333';
+        const strokeWeight = stageConfig.borderColor != null ? 2 : 1;
+        stagesInMap.add(stage);
+        const marker = L.circleMarker(latLng, {
+            radius: 10,
+            fillColor: fillColor,
+            color: strokeColor,
+            weight: strokeWeight,
+            fillOpacity: 0.9
+        }).addTo(mapInstance);
+        const name = deal.Name || deal.name || 'Unnamed';
+        const units = deal['Unit Count'] || deal.unitCount || '';
+        const nameEsc = (name || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const popupContent = `<div style="min-width: 140px;"><strong>${name}</strong><br/>${stage}<br/>${units ? units + ' units' : ''}<br/><button type="button" class="map-popup-btn map-popup-view-deal-btn" data-deal-name="${nameEsc}" style="margin-top: 8px; padding: 6px 12px; background: var(--primary-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; width: 100%;">View deal</button></div>`;
+        marker.bindPopup(popupContent);
+        mapMarkers.push({ marker: marker, deal: deal, location: loc, deals: null, coords: latLng });
+        allMapMarkers.push({ marker: marker, deal: deal, location: loc, deals: null, coords: latLng });
+    });
+    if (legendEl) {
+        const stages = Array.from(stagesInMap).sort();
+        legendEl.innerHTML = '<div class="map-legend-title">Stage</div>' + stages.map(stage => {
+            const cfg = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
+            const bg = cfg.color || '#8b5cf6';
+            const borderStyle = cfg.borderColor != null ? `border: 2px solid ${cfg.borderColor};` : '';
+            return `<div class="map-legend-item"><span class="map-legend-dot" style="background:${bg};${borderStyle}"></span>${stage}</div>`;
+        }).join('');
+    }
+    }
     
     // Fit map to show all filtered markers
     if (mapMarkers.length > 0) {
         const group = new L.featureGroup(mapMarkers.map(m => m.marker));
         mapInstance.fitBounds(group.getBounds().pad(0.1));
     } else {
-        // If no markers (all filtered out), reset to default view
-        mapInstance.setView([35.0, -90.0], 5);
+        // If no markers (all filtered out), stay on continental US
+        mapInstance.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
     }
     
     // Add event listeners for map movement
@@ -3047,46 +3203,72 @@ async function initMap(deals) {
         tableContainerCheck.style.display = 'block';
     }
     
-    // Add event listener for popup button clicks
+    // Populate list view on initial load (otherwise it stays empty until user moves/zooms map)
+    updateMapTable();
+    
+    // Add event listener for popup button clicks (city "View Deals" and single-deal "View deal")
     mapInstance.on('popupopen', function(e) {
         const popup = e.popup;
         const popupElement = popup.getElement();
-        if (popupElement) {
-            const viewDealsBtn = popupElement.querySelector('.map-popup-btn');
-            if (viewDealsBtn) {
-                // Remove any existing listeners to prevent duplicates
-                const newBtn = viewDealsBtn.cloneNode(true);
-                viewDealsBtn.parentNode.replaceChild(newBtn, viewDealsBtn);
-                
-                newBtn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const cityName = this.dataset.city;
-                    const location = this.dataset.location;
-                    console.log('View Deals clicked for:', cityName, location);
-                    if (cityName && location) {
-                    focusMapOnCityFromMarker(cityName, location);
-                    } else {
-                        console.error('Missing cityName or location data:', { cityName, location });
-                    }
-                });
-            }
+        if (!popupElement) return;
+        // Single-deal (color point) "View deal" button
+        const viewDealBtn = popupElement.querySelector('.map-popup-view-deal-btn');
+        if (viewDealBtn) {
+            const newBtn = viewDealBtn.cloneNode(true);
+            viewDealBtn.parentNode.replaceChild(newBtn, viewDealBtn);
+            newBtn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const dealName = (this.getAttribute('data-deal-name') || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                const deal = (typeof allDeals !== 'undefined' ? allDeals : []).find(d => (d.Name || d.name) === dealName) ||
+                    (visibleDealsForMap && visibleDealsForMap.find(d => (d.Name || d.name) === dealName));
+                if (deal) {
+                    showDealDetail(deal);
+                    mapInstance.closePopup();
+                }
+            });
+            return;
         }
-    });
-    
-    // Also use event delegation on the map container as a fallback
-    if (mapInstance.getContainer()) {
-        mapInstance.getContainer().addEventListener('click', function(e) {
-            const target = e.target;
-            if (target && target.classList.contains('map-popup-btn')) {
-                e.preventDefault();
-                e.stopPropagation();
-                const cityName = target.dataset.city;
-                const location = target.dataset.location;
-                console.log('View Deals clicked (delegation) for:', cityName, location);
+        // City view "View Deals" button
+        const viewDealsBtn = popupElement.querySelector('.map-popup-btn');
+        if (viewDealsBtn) {
+            const newBtn = viewDealsBtn.cloneNode(true);
+            viewDealsBtn.parentNode.replaceChild(newBtn, viewDealsBtn);
+            newBtn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                const cityName = this.dataset.city;
+                const location = this.dataset.location;
                 if (cityName && location) {
                     focusMapOnCityFromMarker(cityName, location);
                 }
+            });
+        }
+    });
+    
+    // Event delegation on the map container for popup buttons
+    if (mapInstance.getContainer()) {
+        mapInstance.getContainer().addEventListener('click', function(e) {
+            const target = e.target;
+            if (!target || !target.classList.contains('map-popup-btn')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            // Single-deal "View deal" (color point view)
+            if (target.classList.contains('map-popup-view-deal-btn')) {
+                const dealName = (target.getAttribute('data-deal-name') || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+                const deal = (typeof allDeals !== 'undefined' ? allDeals : []).find(d => (d.Name || d.name) === dealName) ||
+                    (visibleDealsForMap && visibleDealsForMap.find(d => (d.Name || d.name) === dealName));
+                if (deal) {
+                    showDealDetail(deal);
+                    if (mapInstance) mapInstance.closePopup();
+                }
+                return;
+            }
+            // City "View Deals"
+            const cityName = target.dataset.city;
+            const location = target.dataset.location;
+            if (cityName && location) {
+                focusMapOnCityFromMarker(cityName, location);
             }
         });
     }
@@ -3097,6 +3279,7 @@ async function initMap(deals) {
         if (exitBtn) {
             exitBtn.addEventListener('click', exitCityView);
         }
+        setupMapViewControls();
     }, 200);
     
     // Initial table update - show all filtered deals
@@ -3396,6 +3579,134 @@ function exitCityView() {
         if (mapMarkers.length === 0) {
             controlsContainer.style.display = 'none';
         }
+    }
+}
+
+// Bind location search, Fit All, and Map/List toggle for map view
+function setupMapViewControls() {
+    const panel = document.getElementById('map-view-panel');
+    const searchInput = document.getElementById('map-location-search');
+    const searchBtn = document.getElementById('map-location-search-btn');
+    const fitAllBtn = document.getElementById('map-fit-all-btn');
+    const mapViewBtn = document.getElementById('map-view-map-btn');
+    const splitViewBtn = document.getElementById('map-view-split-btn');
+    const listViewBtn = document.getElementById('map-view-list-btn');
+    const mapCanvas = document.getElementById('location-map');
+    const tableContainer = document.getElementById('map-table-container');
+
+    // Map / Split / List view toggle
+    function setMapPanelView(mode) {
+        if (!panel || !mapCanvas || !tableContainer) return;
+        panel.classList.remove('view-map', 'view-list', 'view-split');
+        if (mode === 'list') {
+            panel.classList.add('view-list');
+            mapCanvas.setAttribute('aria-hidden', 'true');
+            tableContainer.setAttribute('aria-hidden', 'false');
+            if (mapViewBtn) { mapViewBtn.classList.remove('active'); mapViewBtn.setAttribute('aria-pressed', 'false'); }
+            if (splitViewBtn) { splitViewBtn.classList.remove('active'); splitViewBtn.setAttribute('aria-pressed', 'false'); }
+            if (listViewBtn) { listViewBtn.classList.add('active'); listViewBtn.setAttribute('aria-pressed', 'true'); }
+            updateMapTable();
+            setupDrillDownHandlers();
+            requestAnimationFrame(function() { if (tableContainer) tableContainer.scrollTop = 0; });
+        } else if (mode === 'split') {
+            panel.classList.add('view-split');
+            mapCanvas.setAttribute('aria-hidden', 'false');
+            tableContainer.setAttribute('aria-hidden', 'false');
+            if (mapViewBtn) { mapViewBtn.classList.remove('active'); mapViewBtn.setAttribute('aria-pressed', 'false'); }
+            if (splitViewBtn) { splitViewBtn.classList.add('active'); splitViewBtn.setAttribute('aria-pressed', 'true'); }
+            if (listViewBtn) { listViewBtn.classList.remove('active'); listViewBtn.setAttribute('aria-pressed', 'false'); }
+            updateMapTable();
+            setupDrillDownHandlers();
+            if (mapInstance) setTimeout(function() { mapInstance.invalidateSize(); }, 100);
+        } else {
+            panel.classList.add('view-map');
+            mapCanvas.setAttribute('aria-hidden', 'false');
+            tableContainer.setAttribute('aria-hidden', 'true');
+            if (mapViewBtn) { mapViewBtn.classList.add('active'); mapViewBtn.setAttribute('aria-pressed', 'true'); }
+            if (splitViewBtn) { splitViewBtn.classList.remove('active'); splitViewBtn.setAttribute('aria-pressed', 'false'); }
+            if (listViewBtn) { listViewBtn.classList.remove('active'); listViewBtn.setAttribute('aria-pressed', 'false'); }
+            if (mapInstance) setTimeout(function() { mapInstance.invalidateSize(); }, 100);
+        }
+    }
+
+    if (mapViewBtn) mapViewBtn.addEventListener('click', function() { setMapPanelView('map'); });
+    if (splitViewBtn) splitViewBtn.addEventListener('click', function() { setMapPanelView('split'); });
+    if (listViewBtn) listViewBtn.addEventListener('click', function() { setMapPanelView('list'); });
+
+    // Full screen map – set up first so it works even if mapInstance isn't ready yet
+    const mapCanvasContainer = document.getElementById('map-canvas-container');
+    const fullscreenBtn = document.getElementById('map-fullscreen-btn');
+    const fullscreenExitBtn = document.getElementById('map-fullscreen-exit-btn');
+
+    function enterMapFullscreen() {
+        if (!mapCanvasContainer || !panel || panel.classList.contains('view-list')) return;
+        mapCanvasContainer.classList.add('is-fullscreen');
+        if (fullscreenExitBtn) fullscreenExitBtn.style.display = 'block';
+        if (fullscreenBtn) fullscreenBtn.textContent = 'Exit full screen';
+        document.body.classList.add('map-fullscreen-active');
+        if (mapInstance) setTimeout(function() { mapInstance.invalidateSize(); }, 150);
+        window.addEventListener('keydown', onFullscreenKeydown);
+    }
+
+    function exitMapFullscreen() {
+        if (!mapCanvasContainer) return;
+        mapCanvasContainer.classList.remove('is-fullscreen');
+        if (fullscreenExitBtn) fullscreenExitBtn.style.display = 'none';
+        if (fullscreenBtn) fullscreenBtn.textContent = 'Full screen';
+        document.body.classList.remove('map-fullscreen-active');
+        if (mapInstance) setTimeout(function() { mapInstance.invalidateSize(); }, 150);
+        window.removeEventListener('keydown', onFullscreenKeydown);
+    }
+
+    function onFullscreenKeydown(e) {
+        if (e.key === 'Escape' && mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+            exitMapFullscreen();
+        }
+    }
+
+    if (fullscreenBtn) {
+        fullscreenBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+                exitMapFullscreen();
+            } else {
+                enterMapFullscreen();
+            }
+        });
+    }
+    if (fullscreenExitBtn) {
+        fullscreenExitBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            exitMapFullscreen();
+        });
+    }
+
+    if (!mapInstance) return;
+
+    async function goToLocation() {
+        const q = (searchInput && searchInput.value) ? searchInput.value.trim() : '';
+        if (!q) return;
+        try {
+            const coords = await geocodeLocation(q);
+            if (coords && mapInstance) {
+                mapInstance.setView(coords, 10);
+            }
+        } catch (_) {}
+    }
+
+    if (searchBtn) searchBtn.addEventListener('click', goToLocation);
+    if (searchInput) {
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); goToLocation(); }
+        });
+    }
+
+    if (fitAllBtn) {
+        fitAllBtn.addEventListener('click', function() {
+            if (!mapInstance || mapMarkers.length === 0) return;
+            const group = new L.featureGroup(mapMarkers.map(m => m.marker));
+            mapInstance.fitBounds(group.getBounds().pad(0.1));
+        });
     }
 }
 
@@ -3753,23 +4064,44 @@ function renderByProductType(deals) {
 // Render Deal Files view – list of deals with link to view files (opens deal popup)
 function renderDealFilesView(deals) {
     const filtered = applyFilters(deals, true); // Exclude START
+    const sortConfig = window.dealFilesTableSort || { by: 'name', order: 'asc' };
+    const stageOrder = [...STAGE_DISPLAY_ORDER];
+    const sorted = [...filtered].sort((a, b) => {
+        let cmp = 0;
+        if (sortConfig.by === 'name') {
+            const na = (a.Name || a.name || '').toLowerCase();
+            const nb = (b.Name || b.name || '').toLowerCase();
+            cmp = na.localeCompare(nb);
+        } else if (sortConfig.by === 'stage') {
+            const sa = normalizeStage(a.Stage || a.stage || '');
+            const sb = normalizeStage(b.Stage || b.stage || '');
+            const idxA = stageOrder.indexOf(sa);
+            const idxB = stageOrder.indexOf(sb);
+            cmp = (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
+        } else if (sortConfig.by === 'location') {
+            const la = (getDealLocation(a) || '').toLowerCase();
+            const lb = (getDealLocation(b) || '').toLowerCase();
+            cmp = la.localeCompare(lb);
+        }
+        return sortConfig.order === 'desc' ? -cmp : cmp;
+    });
     return `
         ${renderActiveFilters()}
         <div class="deal-files-view">
             <h2 class="deal-files-title">Deal Files</h2>
-            <p class="deal-files-desc">Click "View deal & files" to open a deal and see its attached files (view, download, upload). Anyone can upload; only admins can delete files.</p>
+            <p class="deal-files-desc">Click "View deal & files" to open a deal and see its attached files. Everyone can view and download; only admins can upload, rename, or delete.</p>
             <div class="deal-files-table-wrapper">
                 <table class="deal-list-table deal-files-table">
                     <thead>
                         <tr>
-                            <th>Deal</th>
-                            <th>Stage</th>
-                            <th>Location</th>
+                            <th class="sortable-header ${sortConfig.by === 'name' ? 'sorted' : ''}" data-sort-by="name" data-sort-order="${sortConfig.by === 'name' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Deal ${sortConfig.by === 'name' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th class="sortable-header ${sortConfig.by === 'stage' ? 'sorted' : ''}" data-sort-by="stage" data-sort-order="${sortConfig.by === 'stage' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Stage ${sortConfig.by === 'stage' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th class="sortable-header ${sortConfig.by === 'location' ? 'sorted' : ''}" data-sort-by="location" data-sort-order="${sortConfig.by === 'location' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Location ${sortConfig.by === 'location' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${filtered.map(deal => {
+                        ${sorted.map(deal => {
                             const name = deal.Name || deal.name || 'Unnamed Deal';
                             const stage = normalizeStage(deal.Stage || deal.stage || 'Prospective');
                             const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
@@ -3787,7 +4119,7 @@ function renderDealFilesView(deals) {
                     </tbody>
                 </table>
             </div>
-            ${filtered.length === 0 ? '<p class="no-data">No deals match the current filters.</p>' : ''}
+            ${sorted.length === 0 ? '<p class="no-data">No deals match the current filters.</p>' : ''}
         </div>
     `;
 }
@@ -3945,12 +4277,23 @@ function renderUnitSummary(deals) {
             <div class="summary-section">
                 <h3>Total Units by Stage</h3>
                 <div class="unit-breakdown">
-                    ${Object.keys(summary.byStage).filter(k => !k.includes('_units') && k !== 'START').map(stage => {
-                        const units = summary.byStage[stage + '_units'] || 0;
-                        const count = summary.byStage[stage];
-                        const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
-                        const percentage = summary.totalUnits > 0 ? ((units / summary.totalUnits) * 100).toFixed(1) : 0;
-                        return `
+                    ${(function () {
+                        const stageKeys = Object.keys(summary.byStage).filter(k => !k.includes('_units') && k !== 'START');
+                        const order = UNIT_SUMMARY_STAGE_ORDER;
+                        const sorted = [...stageKeys].sort((a, b) => {
+                            const ai = order.indexOf(a);
+                            const bi = order.indexOf(b);
+                            if (ai !== -1 && bi !== -1) return ai - bi;
+                            if (ai !== -1) return -1;
+                            if (bi !== -1) return 1;
+                            return a.localeCompare(b);
+                        });
+                        return sorted.map(stage => {
+                            const units = summary.byStage[stage + '_units'] || 0;
+                            const count = summary.byStage[stage];
+                            const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
+                            const percentage = summary.totalUnits > 0 ? ((units / summary.totalUnits) * 100).toFixed(1) : 0;
+                            return `
                             <div class="unit-breakdown-item">
                                 <div class="unit-breakdown-header">
                                     <span class="stage-badge clickable ${stageConfig.class}" data-stage="${stage}">${stage}</span>
@@ -3963,7 +4306,8 @@ function renderUnitSummary(deals) {
                                 <div class="unit-count">${count} deals</div>
                             </div>
                         `;
-                    }).join('')}
+                        }).join('');
+                    })()}
                 </div>
             </div>
             
@@ -4003,28 +4347,48 @@ function updateFiltersUI() {
     });
     const summary = calculateSummary(dealsWithoutStart, true);
     
-    // Update stage filter dropdown (list view filter-controls)
-    const stageFilter = document.getElementById('stage-filter');
-    if (stageFilter) {
-        if (currentFilters.stage === 'START') currentFilters.stage = '';
-        const validStageKeys = Object.keys(summary.byStage)
-            .filter(k => !k.includes('_units'))
-            .filter(k => k !== 'START')
-            .filter(k => k.toLowerCase() !== 'start')
-            .filter(k => !k.includes('START'));
-        const validStages = [...STAGE_DISPLAY_ORDER.filter(s => validStageKeys.includes(s)), ...validStageKeys.filter(s => !STAGE_DISPLAY_ORDER.includes(s)).sort()];
-        stageFilter.innerHTML = '<option value="">All Stages</option>' +
-            validStages.map(s => `<option value="${s.replace(/"/g, '&quot;')}" ${currentFilters.stage === s ? 'selected' : ''}>${s}</option>`).join('');
+    // Build valid stages list (exclude START)
+    const validStageKeys = Object.keys(summary.byStage)
+        .filter(k => !k.includes('_units'))
+        .filter(k => k !== 'START')
+        .filter(k => k.toLowerCase() !== 'start')
+        .filter(k => !k.includes('START'));
+    const validStages = [...STAGE_DISPLAY_ORDER.filter(s => validStageKeys.includes(s)), ...validStageKeys.filter(s => !STAGE_DISPLAY_ORDER.includes(s)).sort()];
+    const selectedStages = Array.isArray(currentFilters.stages) ? currentFilters.stages : [];
+
+    // Update stage filter checkboxes (list view filter-controls)
+    const stageCheckboxesContainer = document.getElementById('stage-filter-checkboxes');
+    if (stageCheckboxesContainer) {
+        stageCheckboxesContainer.innerHTML = validStages.map(s => {
+            const checked = selectedStages.includes(s) ? ' checked' : '';
+            const safe = s.replace(/"/g, '&quot;');
+            return `<label class="stage-filter-checkbox-label"><input type="checkbox" class="stage-filter-checkbox" value="${safe}"${checked}> ${s}</label>`;
+        }).join('');
+    }
+
+    // Update stage filter trigger button label
+    const stageTrigger = document.getElementById('stage-filter-trigger');
+    if (stageTrigger) {
+        if (selectedStages.length === 0) stageTrigger.textContent = 'All Stages';
+        else if (selectedStages.length <= 2) stageTrigger.textContent = selectedStages.join(', ');
+        else stageTrigger.textContent = selectedStages.length + ' stages';
+    }
+    // Overview stage dropdown trigger label (when on Overview page)
+    const overviewStageTrigger = document.getElementById('overview-stage-filter-trigger');
+    if (overviewStageTrigger) {
+        if (selectedStages.length === 0) overviewStageTrigger.textContent = 'All Stages';
+        else if (selectedStages.length <= 2) overviewStageTrigger.textContent = selectedStages.join(', ');
+        else overviewStageTrigger.textContent = selectedStages.length + ' stages';
     }
     
-    // Update quick filter dropdowns on overview page (state, stage, product, year)
+    // Update quick filter dropdowns on overview page (state, product, year)
     const stateDropdown = document.getElementById('state-filter-dropdown');
     if (stateDropdown) stateDropdown.value = currentFilters.state || '';
-    const stageDropdown = document.getElementById('stage-filter-dropdown');
-    if (stageDropdown) {
-        if (currentFilters.stage === 'START') currentFilters.stage = '';
-        stageDropdown.value = currentFilters.stage || '';
-    }
+    // Overview stage checkboxes are rendered in renderOverview; sync checked state if container exists
+    const overviewStageCheckboxes = document.querySelectorAll('#overview-stage-filter-checkboxes .stage-filter-checkbox');
+    overviewStageCheckboxes.forEach(cb => {
+        cb.checked = selectedStages.includes(cb.value);
+    });
     
     const productDropdown = document.getElementById('product-filter-dropdown');
     if (productDropdown) {
@@ -4036,12 +4400,13 @@ function updateFiltersUI() {
         yearDropdown.value = currentFilters.year || '';
     }
     
-    // Update location filter
-    const locationFilter = document.getElementById('location-filter');
-    if (locationFilter) {
-        locationFilter.innerHTML = '<option value="">All Locations</option>' +
-            Object.keys(summary.byLocation).filter(l => l !== 'Unknown').sort().map(location => 
-                `<option value="${location}" ${currentFilters.location === location ? 'selected' : ''}>${location}</option>`
+    // Update state filter (Filter by State)
+    const stateFilter = document.getElementById('state-filter');
+    if (stateFilter) {
+        const states = Object.keys(summary.byState || {}).filter(s => s !== 'Unknown').sort();
+        stateFilter.innerHTML = '<option value="">All States</option>' +
+            states.map(state =>
+                `<option value="${state}" ${currentFilters.state === state ? 'selected' : ''}>${state}</option>`
             ).join('');
     }
     
@@ -4083,8 +4448,8 @@ function updateSortUI() {
 // Get active filters for display
 function getActiveFilters() {
     const active = [];
-    if (currentFilters.stage) active.push({ label: 'Stage', value: currentFilters.stage });
-    if (currentFilters.location) active.push({ label: 'Location', value: currentFilters.location });
+    if (currentFilters.stages && currentFilters.stages.length > 0) active.push({ label: 'Stage', value: currentFilters.stages.join(', ') });
+    if (currentFilters.state) active.push({ label: 'State', value: currentFilters.state });
     if (currentFilters.bank) active.push({ label: 'Bank', value: currentFilters.bank });
     if (currentFilters.product) active.push({ label: 'Product Type', value: currentFilters.product });
     if (currentFilters.state) active.push({ label: 'State', value: currentFilters.state });
@@ -4117,7 +4482,7 @@ function renderActiveFilters() {
 // Clear filters
 function clearFilters() {
     currentFilters = {
-        stage: '',
+        stages: [],
         location: '',
         bank: '',
         product: '',
@@ -4267,6 +4632,22 @@ function showDealDetail(deal) {
                             const orig = deal._original;
                             const additionalFields = [];
                             
+                            // Land development pipeline attributes
+                            if (deal.BrokerReferralName || orig.BrokerReferralSource) {
+                                additionalFields.push(`<div class="deal-detail-item"><label>Broker/Referral</label><span>${(deal.BrokerReferralName || orig.BrokerReferralSource || '').replace(/</g, '&lt;')}</span></div>`);
+                            }
+                            if (deal.PriceRaw != null && deal.PriceRaw !== '' || orig.PriceRaw != null && orig.PriceRaw !== '') {
+                                additionalFields.push(`<div class="deal-detail-item"><label>Price (raw)</label><span>${(deal.PriceRaw ?? orig.PriceRaw ?? '').toString().replace(/</g, '&lt;')}</span></div>`);
+                            }
+                            if (deal.ListingStatus || orig.ListingStatus) {
+                                additionalFields.push(`<div class="deal-detail-item"><label>Listed/Unlisted</label><span>${(deal.ListingStatus || orig.ListingStatus || '').replace(/</g, '&lt;')}</span></div>`);
+                            }
+                            if (deal.Zoning || orig.Zoning) {
+                                additionalFields.push(`<div class="deal-detail-item"><label>Zoning</label><span>${(deal.Zoning || orig.Zoning || '').replace(/</g, '&lt;')}</span></div>`);
+                            }
+                            if (deal.CountyParish || orig.County) {
+                                additionalFields.push(`<div class="deal-detail-item"><label>County/Parish</label><span>${(deal.CountyParish || orig.County || '').replace(/</g, '&lt;')}</span></div>`);
+                            }
                             // Region (if not already shown in location)
                             if (orig.Region && orig.Region !== location) {
                                 additionalFields.push(`<div class="deal-detail-item"><label>Region</label><span>${orig.Region}</span></div>`);
@@ -4382,11 +4763,12 @@ function showDealDetail(deal) {
                         ` : ''}
                 <div class="deal-detail-section deal-detail-files-section" id="deal-detail-files-section" data-deal-pipeline-id="${deal.DealPipelineId || deal._original?.DealPipelineId || ''}">
                     <h3>Files</h3>
-                    <p class="deal-detail-files-desc">View, download, or upload files (e.g. LOIs, site plans). Anyone can upload; only admins can delete.</p>
+                    <p class="deal-detail-files-desc">${typeof isAuthenticated !== 'undefined' && isAuthenticated ? 'View, download, upload, rename, or delete files (e.g. LOIs, site plans).' : 'View and download files. Only admins can upload, rename, or delete.'}</p>
                     <div class="deal-detail-files-message" id="deal-detail-files-message" role="status" aria-live="polite"></div>
-                    <div class="deal-detail-files-upload">
+                    <div class="deal-detail-files-upload" id="deal-detail-files-upload-wrap" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
                         <input type="file" class="deal-detail-file-input" id="deal-detail-file-input" multiple />
                         <button type="button" class="deal-detail-upload-btn" id="deal-detail-upload-btn">Upload</button>
+                        <input type="file" id="deal-detail-file-version-input" accept="*" style="display: none;" />
                     </div>
                     <div class="deal-detail-files-list" id="deal-detail-files-list">
                         <span class="deal-detail-files-loading">Loading files…</span>
@@ -4415,34 +4797,107 @@ function showDealDetail(deal) {
         filesMessageEl._clearTimer = setTimeout(() => { filesMessageEl.textContent = ''; filesMessageEl.style.display = 'none'; }, 8000);
     }
     
+    // True for PDF and common image types that browsers can display inline (no download required)
+    function isViewableFile(fileName, contentType) {
+        const ext = (fileName || '').split('.').pop().toLowerCase();
+        const viewableExts = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+        if (viewableExts.includes(ext)) return true;
+        const ct = (contentType || '').toLowerCase();
+        if (ct === 'application/pdf' || ct.startsWith('image/')) return true;
+        return false;
+    }
+    
     async function renderDealPopupFiles() {
         if (!dealPipelineId || !filesListEl) return;
         try {
             const res = await API.listDealPipelineAttachments(dealPipelineId);
             const list = res.data || [];
+            const canEdit = typeof isAuthenticated !== 'undefined' && isAuthenticated;
             if (list.length === 0) {
-                filesListEl.innerHTML = '<span class="deal-detail-files-empty">No files attached. Upload using the button above.</span>';
+                filesListEl.innerHTML = '<span class="deal-detail-files-empty">' + (canEdit ? 'No files attached. Upload using the button above.' : 'No files attached.') + '</span>';
                 return;
             }
-            filesListEl.innerHTML = list.map(a => {
-                const sizeKb = (a.FileSizeBytes / 1024).toFixed(1);
-                const dateStr = a.CreatedAt ? formatDate(a.CreatedAt) : '—';
-                const canDelete = typeof isAuthenticated !== 'undefined' && isAuthenticated;
-                const deleteBtn = canDelete
-                    ? `<button type="button" class="deal-detail-file-delete" data-attachment-id="${a.DealPipelineAttachmentId}" title="Delete (admin only)">Delete</button>`
-                    : `<span class="deal-detail-file-delete-disabled" title="Only admins can delete files. Contact an admin to remove this file.">Delete (admin only)</span>`;
-                const fileName = (a.FileName || 'File').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                const fileNameAttr = (a.FileName || '').replace(/"/g, '&quot;');
-                return `<div class="deal-detail-file-item" data-attachment-id="${a.DealPipelineAttachmentId}">
-                    <span class="deal-detail-file-name" title="${fileNameAttr}">${fileName}</span>
-                    <span class="deal-detail-file-meta">${sizeKb} KB · ${dateStr}</span>
-                    <div class="deal-detail-file-actions">
-                        <button type="button" class="deal-detail-file-rename-btn" data-attachment-id="${a.DealPipelineAttachmentId}" data-file-name="${fileNameAttr}" title="Rename">Rename</button>
-                        <button type="button" class="deal-detail-file-download-btn" data-attachment-id="${a.DealPipelineAttachmentId}" data-file-name="${fileNameAttr}" title="Download">Download</button>
-                        ${deleteBtn}
-                    </div>
-                </div>`;
-            }).join('');
+            // Group by document: if backend sends ParentAttachmentId, group by root; else group by base filename
+            let docGroups = [];
+            if (list.some(a => a.ParentAttachmentId != null)) {
+                const byRoot = {};
+                list.forEach(a => {
+                    const rootId = a.ParentAttachmentId != null ? a.ParentAttachmentId : a.DealPipelineAttachmentId;
+                    if (!byRoot[rootId]) byRoot[rootId] = [];
+                    byRoot[rootId].push(a);
+                });
+                docGroups = Object.keys(byRoot).map(rootId => ({
+                    key: rootId,
+                    versions: (byRoot[rootId] || []).slice().sort((x, y) => new Date(y.CreatedAt || 0) - new Date(x.CreatedAt || 0))
+                }));
+            } else {
+                const byName = {};
+                list.forEach(a => {
+                    const key = (a.FileName || '').toLowerCase().trim() || String(a.DealPipelineAttachmentId);
+                    if (!byName[key]) byName[key] = [];
+                    byName[key].push(a);
+                });
+                docGroups = Object.keys(byName).map(k => ({
+                    key: k,
+                    versions: (byName[k] || []).slice().sort((x, y) => new Date(y.CreatedAt || 0) - new Date(x.CreatedAt || 0))
+                }));
+            }
+
+            let html = '';
+            docGroups.forEach(({ versions }) => {
+                const latest = versions[0];
+                const versionCount = versions.length;
+                const sizeKb = (latest.FileSizeBytes / 1024).toFixed(1);
+                const dateStr = latest.CreatedAt ? formatDate(latest.CreatedAt) : '—';
+                const deleteBtn = canEdit
+                    ? `<button type="button" class="deal-detail-file-delete" data-attachment-id="${latest.DealPipelineAttachmentId}" title="Delete (admin only)">Delete</button>`
+                    : `<span class="deal-detail-file-delete-disabled" title="Only admins can delete files.">Delete (admin only)</span>`;
+                const renameBtn = canEdit
+                    ? `<button type="button" class="deal-detail-file-rename-btn" data-attachment-id="${latest.DealPipelineAttachmentId}" data-file-name="${(latest.FileName || '').replace(/"/g, '&quot;')}" title="Rename">Rename</button>`
+                    : '';
+                const fileName = (latest.FileName || 'File').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const fileNameAttr = (latest.FileName || '').replace(/"/g, '&quot;');
+                const versionLabel = versionCount > 1 ? ` <span class="deal-detail-file-version-badge">Version ${versionCount} (current)</span>` : '';
+                const uploadNewVersionBtn = canEdit
+                    ? ` <button type="button" class="deal-detail-file-upload-version-btn" data-parent-id="${latest.DealPipelineAttachmentId}" title="Upload new version">Upload new version</button>`
+                    : '';
+                const viewableLatest = isViewableFile(latest.FileName, latest.ContentType);
+                const viewBtnLatest = viewableLatest
+                    ? `<button type="button" class="deal-detail-file-view-btn" data-attachment-id="${latest.DealPipelineAttachmentId}" data-file-name="${fileNameAttr}" title="View in browser">View</button>`
+                    : '';
+                html += `<div class="deal-detail-file-doc" data-parent-id="${latest.DealPipelineAttachmentId}">
+                    <div class="deal-detail-file-item" data-attachment-id="${latest.DealPipelineAttachmentId}">
+                        <span class="deal-detail-file-name" title="${fileNameAttr}">${fileName}</span>${versionLabel}
+                        <span class="deal-detail-file-meta">${sizeKb} KB · ${dateStr}</span>
+                        <div class="deal-detail-file-actions">
+                            ${renameBtn}
+                            ${viewBtnLatest}
+                            <button type="button" class="deal-detail-file-download-btn" data-attachment-id="${latest.DealPipelineAttachmentId}" data-file-name="${fileNameAttr}" title="Download">Download</button>
+                            ${deleteBtn}${uploadNewVersionBtn}
+                        </div>
+                    </div>`;
+                if (versions.length > 1) {
+                    html += '<div class="deal-detail-file-version-history">';
+                    versions.slice(1).forEach((a, i) => {
+                        const vNum = versions.length - i;
+                        const vDate = a.CreatedAt ? formatDate(a.CreatedAt) : '—';
+                        const vName = (a.FileName || '').replace(/"/g, '&quot;');
+                        const viewableVer = isViewableFile(a.FileName, a.ContentType);
+                        const viewBtnVer = viewableVer
+                            ? `<button type="button" class="deal-detail-file-view-btn" data-attachment-id="${a.DealPipelineAttachmentId}" data-file-name="${vName}" title="View in browser">View</button>`
+                            : '';
+                        html += `<div class="deal-detail-file-version-row">
+                            <span class="deal-detail-file-version-label">Version ${vNum}</span>
+                            <span class="deal-detail-file-meta">${vDate}</span>
+                            ${viewBtnVer}
+                            <button type="button" class="deal-detail-file-download-btn" data-attachment-id="${a.DealPipelineAttachmentId}" data-file-name="${vName}" title="Download">Download</button>
+                        </div>`;
+                    });
+                    html += '</div>';
+                }
+                html += '</div>';
+            });
+            filesListEl.innerHTML = html;
             const token = (typeof API.getAuthToken === 'function' && API.getAuthToken()) || (typeof localStorage !== 'undefined' && localStorage.getItem('authToken'));
             // Helper: get server error message from failed fetch (JSON body like { success: false, error: { message: "..." } })
             async function getFetchErrorMessage(res) {
@@ -4494,6 +4949,32 @@ function showDealDetail(deal) {
                         if (e.key === 'Enter') saveBtn.click();
                         if (e.key === 'Escape') cancelBtn.click();
                     });
+                });
+            });
+            // View: open viewable files (PDF, images) in a new tab without downloading
+            filesListEl.querySelectorAll('.deal-detail-file-view-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const attachmentId = btn.dataset.attachmentId;
+                    const url = API.getDealPipelineAttachmentDownloadUrl(attachmentId);
+                    try {
+                        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+                        if (!res.ok) {
+                            const msg = await getFetchErrorMessage(res);
+                            let hint = '';
+                            if (msg.toLowerCase().includes('file not found')) hint = ' The file may not have been saved on the server.';
+                            else if (msg.toLowerCase().includes('crypto is not defined')) hint = ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file URLs.';
+                            showFilesMessage(msg + hint, true);
+                            return;
+                        }
+                        const blob = await res.blob();
+                        const objectUrl = URL.createObjectURL(blob);
+                        window.open(objectUrl, '_blank', 'noopener');
+                        // Don't revoke so the new tab can display the content; blob is freed when tab is closed
+                    } catch (e) {
+                        let msg = e.message || 'Could not open file.';
+                        if (String(msg).toLowerCase().includes('crypto is not defined')) msg += ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file downloads.';
+                        showFilesMessage(msg, true);
+                    }
                 });
             });
             // Download: fetch with auth then trigger download
@@ -4556,6 +5037,18 @@ function showDealDetail(deal) {
                     });
                 });
             });
+            // Upload new version (admin only): open file picker, then upload with parentAttachmentId
+            filesListEl.querySelectorAll('.deal-detail-file-upload-version-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const parentId = btn.dataset.parentId;
+                    const versionInput = document.getElementById('deal-detail-file-version-input');
+                    if (versionInput && parentId) {
+                        versionInput.dataset.parentId = parentId;
+                        versionInput.value = '';
+                        versionInput.click();
+                    }
+                });
+            });
         } catch (e) {
             const msg = e.message || 'Could not load files.';
             filesListEl.innerHTML = `<span class="deal-detail-files-error">${msg}${msg.toLowerCase().includes('file not found') ? ' Check that the backend is saving uploads and serving them correctly.' : ''}</span>`;
@@ -4564,9 +5057,10 @@ function showDealDetail(deal) {
     
     if (dealPipelineId && filesSection) {
         renderDealPopupFiles();
-        uploadBtn.addEventListener('click', async () => {
+        uploadBtn.addEventListener('click', () => { fileInput.click(); });
+        fileInput.addEventListener('change', async () => {
             const files = fileInput.files;
-            if (!files || files.length === 0) { showFilesMessage('Select one or more files to upload.', true); return; }
+            if (!files || files.length === 0) return;
             let anyFailed = false;
             for (let i = 0; i < files.length; i++) {
                 try {
@@ -4580,6 +5074,23 @@ function showDealDetail(deal) {
             fileInput.value = '';
             if (!anyFailed && files.length > 0) renderDealPopupFiles();
         });
+        const versionInput = modal.querySelector('#deal-detail-file-version-input');
+        if (versionInput) {
+            versionInput.addEventListener('change', async function() {
+                const parentId = this.dataset.parentId;
+                const file = this.files && this.files[0];
+                this.value = '';
+                this.removeAttribute('data-parent-id');
+                if (!file || !parentId) return;
+                try {
+                    await API.uploadDealPipelineAttachment(dealPipelineId, file, { parentAttachmentId: parseInt(parentId, 10) });
+                    renderDealPopupFiles();
+                    showFilesMessage('New version uploaded.', false);
+                } catch (e) {
+                    showFilesMessage(e.message || 'Upload failed.', true);
+                }
+            });
+        }
     } else if (filesListEl) {
         filesListEl.innerHTML = '<span class="deal-detail-files-empty">Files are available for deals saved in the pipeline.</span>';
         if (filesSection) filesSection.querySelector('.deal-detail-files-upload').style.display = 'none';
@@ -4664,7 +5175,8 @@ async function switchView(view, deals) {
     const filterControls = document.getElementById('filter-controls');
     const sortControls = document.getElementById('sort-controls');
     const backToNavBtn = document.getElementById('back-to-nav-btn');
-    
+    if (container) container.classList.toggle('view-location', view === 'location');
+
     // Show/hide back button - show when not on overview or list
     if (backToNavBtn) {
         if (view === 'overview' || view === 'list') {
@@ -4715,12 +5227,14 @@ async function switchView(view, deals) {
             break;
         case 'location':
             container.innerHTML = renderByLocation(deals);
-            // Apply filters before initializing map
+            // Apply filters before initializing map; delay so layout (min-height) is applied before Leaflet measures the div
             const filteredForMap = applyFilters(deals, true);
             setTimeout(async () => {
                 await initMap(filteredForMap);
-            setupDrillDownHandlers();
-            }, 100);
+                setupDrillDownHandlers();
+                setupMapViewControls();
+                if (mapInstance) mapInstance.invalidateSize();
+            }, 350);
             break;
         case 'bank':
             container.innerHTML = await renderByBank(deals);
@@ -4739,6 +5253,17 @@ async function switchView(view, deals) {
                     const dealName = this.dataset.dealName;
                     const deal = (typeof allDeals !== 'undefined' ? allDeals : deals).find(d => (d.Name || d.name) === dealName);
                     if (deal) showDealDetail(deal);
+                });
+            });
+            // Bind sortable column headers in Deal Files table
+            document.querySelectorAll('.deal-files-table .sortable-header').forEach(header => {
+                header.addEventListener('click', function() {
+                    const sortBy = this.getAttribute('data-sort-by');
+                    const sortOrder = this.getAttribute('data-sort-order');
+                    if (sortBy && sortOrder) {
+                        window.dealFilesTableSort = { by: sortBy, order: sortOrder };
+                        switchView('files', typeof allDeals !== 'undefined' ? allDeals : deals);
+                    }
                 });
             });
             break;
@@ -5020,8 +5545,237 @@ function processCustomFieldsData(rawData) {
     });
 }
 
+// Global toggle for main filter bar "All Stages" – called from onclick so it always works
+window.toggleMainStageDropdown = function() {
+    console.log('[Filter by Stage] Main bar button clicked');
+    var panel = document.getElementById('stage-filter-dropdown-panel');
+    var trigger = document.getElementById('stage-filter-trigger');
+    if (!panel || !trigger) {
+        console.warn('[Filter by Stage] Main: panel or trigger not found', { panel: !!panel, trigger: !!trigger });
+        return;
+    }
+    var isCurrentlyOpen = panel.getAttribute('aria-hidden') !== 'true';
+    var wantOpen = !isCurrentlyOpen;
+    console.log('[Filter by Stage] Main: toggling panel', wantOpen ? 'open' : 'close');
+    panel.setAttribute('aria-hidden', wantOpen ? 'false' : 'true');
+    panel.style.display = wantOpen ? 'block' : 'none';
+    trigger.setAttribute('aria-expanded', wantOpen ? 'true' : 'false');
+};
+
+// Global toggle for Overview "All Stages" – called from onclick so it always works
+window.toggleOverviewStageDropdown = function() {
+    console.log('[Filter by Stage] Overview button clicked');
+    var panel = document.getElementById('overview-stage-filter-dropdown-panel');
+    var trigger = document.getElementById('overview-stage-filter-trigger');
+    if (!panel || !trigger) {
+        console.warn('[Filter by Stage] Overview: panel or trigger not found', { panel: !!panel, trigger: !!trigger });
+        return;
+    }
+    var isCurrentlyOpen = panel.getAttribute('aria-hidden') !== 'true';
+    var wantOpen = !isCurrentlyOpen;
+    console.log('[Filter by Stage] Overview: toggling panel', wantOpen ? 'open' : 'close');
+    panel.setAttribute('aria-hidden', wantOpen ? 'false' : 'true');
+    panel.style.display = wantOpen ? 'block' : 'none';
+    trigger.setAttribute('aria-expanded', wantOpen ? 'true' : 'false');
+    if (wantOpen) {
+        panel.classList.add('is-open');
+        var rect = trigger.getBoundingClientRect();
+        panel.style.position = 'fixed';
+        panel.style.left = rect.left + 'px';
+        panel.style.top = (rect.bottom + 4) + 'px';
+        panel.style.minWidth = Math.max(rect.width, 220) + 'px';
+    } else {
+        panel.classList.remove('is-open');
+        panel.style.position = '';
+        panel.style.left = '';
+        panel.style.top = '';
+        panel.style.minWidth = '';
+    }
+};
+
+// One-time: stage filter dropdown (main bar + overview) – must run once so we don't add duplicate listeners
+function initStageFilterDropdowns() {
+    document.body.addEventListener('change', function(e) {
+        if (e.target.classList.contains('stage-filter-checkbox')) {
+            var container = e.target.closest('#stage-filter-checkboxes') || e.target.closest('#overview-stage-filter-checkboxes');
+            if (!container) return;
+            var checkboxes = container.querySelectorAll('.stage-filter-checkbox:checked');
+            var checked = Array.from(checkboxes).map(function(c) { return c.value; });
+            if (typeof currentFilters !== 'undefined') currentFilters.stages = checked;
+            if (typeof updateFiltersUI === 'function') updateFiltersUI();
+            if (typeof switchView === 'function' && typeof currentView !== 'undefined' && typeof allDeals !== 'undefined') switchView(currentView, allDeals);
+        }
+    });
+    // Use capture phase so we run before any other handler (sticky header / iframe can't steal the click)
+    document.body.addEventListener('click', function(e) {
+        var clickedTrigger = e.target.closest('#stage-filter-trigger');
+        var mainPanel = document.getElementById('stage-filter-dropdown-panel');
+        if (clickedTrigger) {
+            console.log('[Filter by Stage] Main bar button hit (delegated handler)');
+            e.stopPropagation();
+            e.preventDefault();
+            if (mainPanel) {
+                var mainCurrentlyOpen = mainPanel.getAttribute('aria-hidden') !== 'true';
+                var mainWantOpen = !mainCurrentlyOpen;
+                mainPanel.setAttribute('aria-hidden', mainWantOpen ? 'false' : 'true');
+                mainPanel.style.display = mainWantOpen ? 'block' : 'none';
+                clickedTrigger.setAttribute('aria-expanded', mainWantOpen ? 'true' : 'false');
+            }
+            return;
+        }
+        var clearBtn = e.target.closest('#stage-filter-clear-btn');
+        if (clearBtn) {
+            e.stopPropagation();
+            e.preventDefault();
+            if (typeof currentFilters !== 'undefined') currentFilters.stages = [];
+            if (typeof updateFiltersUI === 'function') updateFiltersUI();
+            if (mainPanel) { mainPanel.setAttribute('aria-hidden', 'true'); mainPanel.style.display = 'none'; }
+            var t = document.getElementById('stage-filter-trigger');
+            if (t) t.setAttribute('aria-expanded', 'false');
+            if (typeof switchView === 'function' && typeof currentView !== 'undefined' && typeof allDeals !== 'undefined') switchView(currentView, allDeals);
+            return;
+        }
+        var mainTrigger = document.getElementById('stage-filter-trigger');
+        if (mainPanel && mainPanel.getAttribute('aria-hidden') !== 'true') {
+            if (!mainPanel.contains(e.target) && (!mainTrigger || !mainTrigger.contains(e.target))) {
+                mainPanel.setAttribute('aria-hidden', 'true');
+                mainPanel.style.display = 'none';
+                if (mainTrigger) mainTrigger.setAttribute('aria-expanded', 'false');
+            }
+        }
+        var overviewTrigger = e.target.closest('.overview-stage-filter-trigger');
+        var overviewPanel = document.getElementById('overview-stage-filter-dropdown-panel');
+        var overviewClearBtn = e.target.closest('.overview-stage-clear-btn');
+        if (overviewTrigger) {
+            console.log('[Filter by Stage] Overview button hit (delegated handler)');
+            e.stopPropagation();
+            e.preventDefault();
+            if (overviewPanel) {
+                var isCurrentlyOpen = overviewPanel.getAttribute('aria-hidden') !== 'true';
+                var wantOpen = !isCurrentlyOpen;
+                overviewPanel.setAttribute('aria-hidden', wantOpen ? 'false' : 'true');
+                overviewTrigger.setAttribute('aria-expanded', wantOpen ? 'true' : 'false');
+                overviewPanel.style.display = wantOpen ? 'block' : 'none';
+                if (wantOpen) {
+                    overviewPanel.classList.add('is-open');
+                    var rect = overviewTrigger.getBoundingClientRect();
+                    overviewPanel.style.position = 'fixed';
+                    overviewPanel.style.left = rect.left + 'px';
+                    overviewPanel.style.top = (rect.bottom + 4) + 'px';
+                    overviewPanel.style.minWidth = Math.max(rect.width, 220) + 'px';
+                } else {
+                    overviewPanel.classList.remove('is-open');
+                    overviewPanel.style.position = '';
+                    overviewPanel.style.left = '';
+                    overviewPanel.style.top = '';
+                    overviewPanel.style.minWidth = '';
+                }
+            } else {
+                console.warn('[Filter by Stage] Overview panel not found');
+            }
+            return;
+        }
+        if (overviewClearBtn) {
+            e.stopPropagation();
+            if (typeof currentFilters !== 'undefined') currentFilters.stages = [];
+            if (typeof updateFiltersUI === 'function') updateFiltersUI();
+            if (overviewPanel) {
+                overviewPanel.setAttribute('aria-hidden', 'true');
+                overviewPanel.style.display = 'none';
+                overviewPanel.classList.remove('is-open');
+                overviewPanel.style.position = overviewPanel.style.left = overviewPanel.style.top = overviewPanel.style.minWidth = '';
+            }
+            var t = document.getElementById('overview-stage-filter-trigger');
+            if (t) t.setAttribute('aria-expanded', 'false');
+            if (typeof switchView === 'function' && typeof currentView !== 'undefined' && typeof allDeals !== 'undefined') switchView(currentView, allDeals);
+            return;
+        }
+        if (overviewPanel && !e.target.closest('.overview-stage-dropdown-wrap')) {
+            overviewPanel.setAttribute('aria-hidden', 'true');
+            overviewPanel.style.display = 'none';
+            overviewPanel.classList.remove('is-open');
+            overviewPanel.style.position = overviewPanel.style.left = overviewPanel.style.top = overviewPanel.style.minWidth = '';
+            var ot = document.getElementById('overview-stage-filter-trigger');
+            if (ot) ot.setAttribute('aria-expanded', 'false');
+        }
+    }, true);
+}
+
+// One-time delegated handler for map fullscreen (works in Domo/iframe and when map is re-rendered)
+function initMapFullscreenDelegation() {
+    if (window._mapFullscreenDelegationDone) return;
+    window._mapFullscreenDelegationDone = true;
+    document.body.addEventListener('click', function(e) {
+        const fullscreenBtn = e.target.id === 'map-fullscreen-btn' || e.target.closest('#map-fullscreen-btn');
+        const exitBtn = e.target.id === 'map-fullscreen-exit-btn' || e.target.closest('#map-fullscreen-exit-btn');
+        if (!fullscreenBtn && !exitBtn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const mapCanvasContainer = document.getElementById('map-canvas-container');
+        const panel = document.getElementById('map-view-panel');
+        const fsBtn = document.getElementById('map-fullscreen-btn');
+        const fsExitBtn = document.getElementById('map-fullscreen-exit-btn');
+        if (exitBtn && mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+            mapCanvasContainer.classList.remove('is-fullscreen');
+            if (fsExitBtn) fsExitBtn.style.display = 'none';
+            if (fsBtn) fsBtn.textContent = 'Full screen';
+            document.body.classList.remove('map-fullscreen-active');
+            if (typeof mapInstance !== 'undefined' && mapInstance) {
+                setTimeout(function() {
+                    mapInstance.invalidateSize();
+                    var c = mapInstance.getCenter();
+                    var z = mapInstance.getZoom();
+                    mapInstance.setView(c, z);
+                }, 150);
+            }
+            return;
+        }
+        if (fullscreenBtn && mapCanvasContainer && panel && !panel.classList.contains('view-list')) {
+            mapCanvasContainer.classList.add('is-fullscreen');
+            if (fsExitBtn) fsExitBtn.style.display = 'block';
+            if (fsBtn) fsBtn.textContent = 'Exit full screen';
+            document.body.classList.add('map-fullscreen-active');
+            if (typeof mapInstance !== 'undefined' && mapInstance) {
+                function fullscreenMapResize() {
+                    mapInstance.invalidateSize();
+                    var c = mapInstance.getCenter();
+                    var z = mapInstance.getZoom();
+                    mapInstance.setView(c, z);
+                }
+                setTimeout(fullscreenMapResize, 100);
+                setTimeout(fullscreenMapResize, 350);
+            }
+        }
+    });
+    window.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        const mapCanvasContainer = document.getElementById('map-canvas-container');
+        if (mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+            e.preventDefault();
+            mapCanvasContainer.classList.remove('is-fullscreen');
+            const fsExitBtn = document.getElementById('map-fullscreen-exit-btn');
+            const fsBtn = document.getElementById('map-fullscreen-btn');
+            if (fsExitBtn) fsExitBtn.style.display = 'none';
+            if (fsBtn) fsBtn.textContent = 'Full screen';
+            document.body.classList.remove('map-fullscreen-active');
+            if (typeof mapInstance !== 'undefined' && mapInstance) {
+                setTimeout(function() {
+                    mapInstance.invalidateSize();
+                    var c = mapInstance.getCenter();
+                    var z = mapInstance.getZoom();
+                    mapInstance.setView(c, z);
+                }, 150);
+            }
+        }
+    });
+}
+
 // Main initialization
 async function init() {
+    // One-time: stage filter dropdown so "All Stages" and overview stage dropdown work
+    initStageFilterDropdowns();
+    // One-time: map fullscreen button (delegated so it works in Domo/iframe and after re-render)
+    initMapFullscreenDelegation();
     // Show loading state
     const container = document.getElementById('deal-list-container');
     container.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
@@ -5091,7 +5845,9 @@ async function init() {
             console.warn('[Domo SSO] Login skipped or failed:', err);
         }
     }
-    
+    // Refresh auth UI so Login button shows when Domo isn't available (or SSO didn't run)
+    updateAuthUI();
+
     // Load deals from database API
     try {
         const response = await API.getAllDealPipelines();
@@ -5198,17 +5954,12 @@ async function init() {
                 });
             }
             
-            // Set up filter event listeners
+            // Set up filter event listeners (stage is handled by stage-filter-checkbox delegation above)
             const filterControlsContainer = document.getElementById('filter-controls');
             if (filterControlsContainer) {
                 filterControlsContainer.addEventListener('change', function(e) {
-                    if (e.target.id === 'stage-filter') {
-                        const val = e.target.value || '';
-                        if (val === 'START') currentFilters.stage = '';
-                        else currentFilters.stage = val;
-                        switchView(currentView, allDeals);
-                    } else if (e.target.id === 'location-filter') {
-                        currentFilters.location = e.target.value;
+                    if (e.target.id === 'state-filter') {
+                        currentFilters.state = e.target.value;
                         switchView(currentView, allDeals);
                     } else if (e.target.id === 'bank-filter') {
                         currentFilters.bank = e.target.value;
@@ -5217,6 +5968,35 @@ async function init() {
                         currentFilters.product = e.target.value;
                         switchView(currentView, allDeals);
                     }
+                });
+            }
+            // Stage filter dropdown: trigger toggle, clear button, close on outside click
+            const stageTrigger = document.getElementById('stage-filter-trigger');
+            const stagePanel = document.getElementById('stage-filter-dropdown-panel');
+            const stageClearBtn = document.getElementById('stage-filter-clear-btn');
+            if (stageTrigger && stagePanel) {
+                stageTrigger.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const open = stagePanel.getAttribute('aria-hidden') !== 'true';
+                    stagePanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+                    stageTrigger.setAttribute('aria-expanded', !open);
+                    stagePanel.style.display = open ? 'block' : 'none';
+                });
+                document.addEventListener('click', function closeStagePanel(e) {
+                    if (!stagePanel.contains(e.target) && e.target !== stageTrigger) {
+                        stagePanel.setAttribute('aria-hidden', 'true');
+                        stageTrigger.setAttribute('aria-expanded', 'false');
+                        stagePanel.style.display = 'none';
+                    }
+                });
+            }
+            if (stageClearBtn) {
+                stageClearBtn.addEventListener('click', function() {
+                    currentFilters.stages = [];
+                    updateFiltersUI();
+                    if (stagePanel) { stagePanel.setAttribute('aria-hidden', 'true'); stagePanel.style.display = 'none'; }
+                    if (stageTrigger) stageTrigger.setAttribute('aria-expanded', 'false');
+                    switchView(currentView, allDeals);
                 });
             }
             
@@ -5262,6 +6042,8 @@ function initAuthUI() {
     
     // Initialize Pre-Con Manager modal
     initPreConManagerModal();
+    // Initialize Broker/Referral create modal
+    initBrokerReferralModal();
     
     // auth-actions visibility is set by updateAuthUI (admin: show Deal Pipeline / Edit; non-admin: hidden, no login)
     
@@ -5410,10 +6192,8 @@ function updateAuthUI() {
         if (dealPipelineBtn) dealPipelineBtn.style.display = 'inline-block';
         if (editModeBtn) editModeBtn.style.display = 'inline-block';
     } else {
-        // Non-admin: no login, no auth actions – just Export Pipeline in header
+        // Not authenticated: hide admin badge and Deal Pipeline / Edit Mode
         if (adminBadge) adminBadge.style.display = 'none';
-        if (authActions) authActions.style.display = 'none';
-        if (loginBtn) loginBtn.style.display = 'none';
         if (dealPipelineBtn) dealPipelineBtn.style.display = 'none';
         if (editModeBtn) editModeBtn.style.display = 'none';
         isEditMode = false;
@@ -5424,6 +6204,9 @@ function updateAuthUI() {
             dealPipelineView.style.display = 'none';
             dealPipelineView.classList.remove('active');
         }
+        // Show Login button when not authenticated so user can log in (local or Domo SSO fallback)
+        if (authActions) authActions.style.display = 'flex';
+        if (loginBtn) loginBtn.style.display = 'inline-block';
     }
 }
 
@@ -5591,6 +6374,22 @@ window.openDealEditModal = async function(deal) {
     }
     document.getElementById('edit-notes').value = deal.Notes || original.Notes || '';
     document.getElementById('edit-closing-notes').value = original.ClosingNotes || '';
+    const editBrokerRef = document.getElementById('edit-broker-referral');
+    const editBrokerRefId = document.getElementById('edit-broker-referral-id');
+    if (editBrokerRef) editBrokerRef.value = deal.BrokerReferralName || original.BrokerReferralSource || '';
+    if (editBrokerRefId) editBrokerRefId.value = original.BrokerReferralContactId || deal.BrokerReferralContactId || '';
+    const editBrokerEmail = document.getElementById('edit-broker-email');
+    const editBrokerPhone = document.getElementById('edit-broker-phone');
+    if (editBrokerEmail) editBrokerEmail.value = '';
+    if (editBrokerPhone) editBrokerPhone.value = '';
+    const editPriceRaw = document.getElementById('edit-price-raw');
+    if (editPriceRaw) editPriceRaw.value = deal.PriceRaw ?? original.PriceRaw ?? '';
+    const editListingStatus = document.getElementById('edit-listing-status');
+    if (editListingStatus) editListingStatus.value = deal.ListingStatus || original.ListingStatus || '';
+    const editZoning = document.getElementById('edit-zoning');
+    if (editZoning) editZoning.value = deal.Zoning || original.Zoning || '';
+    const editCountyParish = document.getElementById('edit-county-parish');
+    if (editCountyParish) editCountyParish.value = deal.CountyParish || original.County || '';
     
     // Auto-calculate SqFtPrice if Acreage and LandPrice are present
     const acreage = parseFloat(original.Acreage || '');
@@ -5647,8 +6446,46 @@ async function handleDealSave(e) {
     }
     
     const form = e.target;
+    // Read project name from DOM by id so it's reliable (form['edit-project-name'] can be undefined when input has name="ProjectName")
+    const projectNameEl = document.getElementById('edit-project-name');
+    const projectName = (projectNameEl && projectNameEl.value) ? projectNameEl.value.trim() : '';
+    if (!projectName) {
+        errorDiv.textContent = 'Project Name is required.';
+        errorDiv.style.display = 'block';
+        if (projectNameEl) projectNameEl.focus();
+        return;
+    }
+    const brokerNameInput = form['edit-broker-referral'];
+    const brokerIdInput = form['edit-broker-referral-id'];
+    if (brokerNameInput && brokerNameInput.value.trim() && (!brokerIdInput || !brokerIdInput.value)) {
+        const name = brokerNameInput.value.trim();
+        try {
+            const listRes = await API.listBrokerReferralContacts(name);
+            const contacts = listRes.data || [];
+            let match = contacts.find(c => (c.Name || '').trim().toLowerCase() === name.toLowerCase());
+            if (!match && contacts.length > 0) match = contacts.find(c => (c.Name || '').toLowerCase().includes(name.toLowerCase()));
+            if (match && (match.BrokerReferralContactId || match.Id)) {
+                const id = match.BrokerReferralContactId ?? match.Id;
+                if (brokerIdInput) brokerIdInput.value = String(id);
+            } else {
+                const email = (form['edit-broker-email'] && form['edit-broker-email'].value) ? form['edit-broker-email'].value.trim() : undefined;
+                const phone = (form['edit-broker-phone'] && form['edit-broker-phone'].value) ? form['edit-broker-phone'].value.trim() : undefined;
+                const payload = { Name: name };
+                if (email) payload.Email = email;
+                if (phone) payload.Phone = phone;
+                const createRes = await API.createBrokerReferralContact(payload);
+                if (createRes.success && createRes.data && (createRes.data.BrokerReferralContactId || createRes.data.Id)) {
+                    const id = createRes.data.BrokerReferralContactId ?? createRes.data.Id;
+                    if (brokerIdInput) brokerIdInput.value = String(id);
+                }
+            }
+        } catch (err) {
+            console.warn('Broker/Referral resolve failed:', err);
+        }
+    }
+    
     const formData = {
-        ProjectName: form['edit-project-name'].value.trim(),
+        ProjectName: projectName,
         Stage: form['edit-stage'].value,
         City: form['edit-city'].value.trim() || null,
         State: form['edit-state'].value.trim().toUpperCase() || null,
@@ -5671,11 +6508,17 @@ async function handleDealSave(e) {
         OpportunityZone: form['edit-opportunity-zone'].checked,
         PreConManagerId: form['edit-precon-manager'].value ? parseInt(form['edit-precon-manager'].value) : null,
         Notes: form['edit-notes'].value.trim() || null,
-        ClosingNotes: form['edit-closing-notes'].value.trim() || null
+        ClosingNotes: form['edit-closing-notes'].value.trim() || null,
+        BrokerReferralContactId: form['edit-broker-referral-id'] && form['edit-broker-referral-id'].value ? parseInt(form['edit-broker-referral-id'].value) : null,
+        PriceRaw: form['edit-price-raw'] && form['edit-price-raw'].value ? form['edit-price-raw'].value.trim() : null,
+        ListingStatus: form['edit-listing-status'] && form['edit-listing-status'].value ? form['edit-listing-status'].value : null,
+        Zoning: form['edit-zoning'] && form['edit-zoning'].value ? form['edit-zoning'].value.trim() : null,
+        County: form['edit-county-parish'] && form['edit-county-parish'].value ? form['edit-county-parish'].value.trim() : null
     };
     
-    // Remove empty fields
+    // Remove empty fields (never remove ProjectName – backend may require it on update)
     Object.keys(formData).forEach(key => {
+        if (key === 'ProjectName') return;
         if (formData[key] === '' || formData[key] === null) {
             delete formData[key];
         }
@@ -5963,6 +6806,11 @@ async function renderDealPipelineTable() {
                         <th title="Entity purchasing the property">Purchasing Entity</th>
                         <th title="Cash transaction">Cash</th>
                         <th title="Located in an Opportunity Zone">Opportunity Zone</th>
+                        <th title="Broker or referral contact">Broker/Referral</th>
+                        <th title="Price (raw), e.g. -, TBD, $1.2M">Price (raw)</th>
+                        <th title="Listed or unlisted">Listed/Unlisted</th>
+                        <th title="Zoning code">Zoning</th>
+                        <th title="County or Parish">County/Parish</th>
                         <th title="Notes about the deal">Notes</th>
                         <th>Actions</th>
                     </tr>
@@ -6245,9 +7093,25 @@ async function renderDealPipelineTable() {
                     <td><input type="text" class="deal-pipeline-field" data-field="PurchasingEntity" value="${(deal.PurchasingEntity || '').replace(/"/g, '&quot;')}" /></td>
                     <td><input type="checkbox" class="deal-pipeline-field" data-field="Cash" ${deal.Cash ? 'checked' : ''} /></td>
                     <td><input type="checkbox" class="deal-pipeline-field" data-field="OpportunityZone" ${deal.OpportunityZone ? 'checked' : ''} /></td>
+                    <td>
+                        <div class="searchable-select-wrapper" data-field="BrokerReferralContactId">
+                            <input type="text" class="searchable-select-input deal-pipeline-field broker-referral-input" data-field="BrokerReferralContactId" data-broker-referral-id="${deal.BrokerReferralContactId || ''}" value="${(deal.BrokerReferralName || '').replace(/"/g, '&quot;')}" placeholder="Search or add contact..." autocomplete="off" style="min-width: 140px;" />
+                            <div class="searchable-select-dropdown" style="display: none;"><div class="searchable-select-options"></div></div>
+                        </div>
+                    </td>
+                    <td><input type="text" class="deal-pipeline-field" data-field="PriceRaw" value="${(deal.PriceRaw || '').replace(/"/g, '&quot;')}" placeholder="e.g. -, TBD" style="min-width: 80px;" /></td>
+                    <td>
+                        <select class="deal-pipeline-field" data-field="ListingStatus">
+                            <option value="">--</option>
+                            <option value="Listed" ${(deal.ListingStatus || '') === 'Listed' ? 'selected' : ''}>Listed</option>
+                            <option value="Unlisted" ${(deal.ListingStatus || '') === 'Unlisted' ? 'selected' : ''}>Unlisted</option>
+                        </select>
+                    </td>
+                    <td><input type="text" class="deal-pipeline-field" data-field="Zoning" value="${(deal.Zoning || '').replace(/"/g, '&quot;')}" placeholder="e.g. CH" style="min-width: 80px;" /></td>
+                    <td><input type="text" class="deal-pipeline-field" data-field="County" value="${(deal.CountyParish || deal.County || '').replace(/"/g, '&quot;')}" placeholder="County/Parish" style="min-width: 100px;" title="County or Parish" /></td>
                     <td><textarea class="deal-pipeline-field" data-field="Notes" rows="4" style="min-width: 300px; width: 100%;">${(deal.Notes || deal.ClosingNotes || '').replace(/"/g, '&quot;')}</textarea></td>
                     <td class="deal-pipeline-actions">
-                        <button class="save-btn" onclick="saveDealPipelineRow('${dealId || 'new'}', '${projectId || ''}')" title="Save changes to this deal">Save</button>
+                        <button class="save-btn" onclick="saveDealPipelineRow(event, '${dealId || 'new'}', '${projectId || ''}')" title="Save changes to this deal">Save</button>
                         ${dealId ? `<button class="delete-btn" onclick="deleteDealPipelineRow('${dealId}')" title="Delete this deal (cannot be undone)">Delete</button>` : ''}
                     </td>
                 </tr>
@@ -6314,8 +7178,9 @@ async function renderDealPipelineTable() {
         // Bind change listeners to track changes
         bindDealPipelineFieldListeners();
         
-        // Initialize searchable selects for Pre-Con Manager
+        // Initialize searchable selects for Pre-Con Manager and Broker/Referral
         initializeSearchableSelects(preConManagers);
+        initializeBrokerReferralSelects();
         
         // Update Save All button visibility after table renders
         updateSaveAllButtonVisibility();
@@ -6552,6 +7417,18 @@ async function saveAllDealPipelineRows() {
                     const managerId = field.dataset.preconManagerId;
                     if (managerId) {
                         data[fieldName] = parseInt(managerId);
+                    }
+                    return;
+                }
+                
+                // Handle searchable select for BrokerReferralContactId
+                if (fieldName === 'BrokerReferralContactId' && field.classList.contains('broker-referral-input')) {
+                    const contactId = field.dataset.brokerReferralId || field.getAttribute('data-broker-referral-id');
+                    if (contactId) {
+                        const parsedId = parseInt(contactId);
+                        if (!isNaN(parsedId) && parsedId > 0) data[fieldName] = parsedId;
+                    } else if (!field.value.trim()) {
+                        data[fieldName] = null;
                     }
                     return;
                 }
@@ -6898,6 +7775,138 @@ function updateAllSearchableSelects(newManager) {
     });
 }
 
+// Initialize Broker/Referral contact searchable selects (search + create new)
+function initializeBrokerReferralSelects() {
+    const wrappers = document.querySelectorAll('.searchable-select-wrapper[data-field="BrokerReferralContactId"]');
+    wrappers.forEach(wrapper => {
+        const input = wrapper.querySelector('.broker-referral-input');
+        const dropdown = wrapper.querySelector('.searchable-select-dropdown');
+        const optionsContainer = wrapper.querySelector('.searchable-select-options');
+        if (!input || !dropdown || !optionsContainer) return;
+        if (wrapper._brokerReferralInitialized) return;
+        wrapper._brokerReferralInitialized = true;
+        
+        async function updateBrokerOptions(query) {
+            const q = (query || '').trim();
+            let html = '';
+            try {
+                const res = await API.listBrokerReferralContacts(q || undefined);
+                const contacts = res.data || [];
+                const searchLower = q.toLowerCase();
+                const filtered = q ? contacts.filter(c => (c.Name || '').toLowerCase().includes(searchLower)) : contacts;
+                filtered.forEach(c => {
+                    const name = c.Name || '';
+                    const id = c.BrokerReferralContactId ?? c.Id;
+                    html += `<div class="searchable-select-option" data-action="select" data-broker-referral-id="${id}">${name.replace(/</g, '&lt;')}</div>`;
+                });
+                if (q && !contacts.some(c => (c.Name || '').trim().toLowerCase() === searchLower)) {
+                    html += `<div class="searchable-select-option create-new" data-action="create-broker">Add new: "${(q || '').replace(/</g, '&lt;')}"</div>`;
+                }
+            } catch (_) {
+                if (q) html += `<div class="searchable-select-option create-new" data-action="create-broker">Add new: "${(q || '').replace(/</g, '&lt;')}"</div>`;
+            }
+            if (!html) html = '<div class="searchable-select-option no-results">Type to search or add new contact.</div>';
+            optionsContainer.innerHTML = html;
+        }
+        
+        input.addEventListener('focus', () => { dropdown.style.display = 'block'; updateBrokerOptions(input.value); });
+        input.addEventListener('input', () => { updateBrokerOptions(input.value); dropdown.style.display = 'block'; const row = input.closest('tr'); if (row) row.classList.add('has-changes'); });
+        document.addEventListener('click', e => { if (!wrapper.contains(e.target)) dropdown.style.display = 'none'; });
+        
+        optionsContainer.addEventListener('click', async e => {
+            const option = e.target.closest('.searchable-select-option');
+            if (!option) return;
+            const action = option.dataset.action;
+            if (action === 'create-broker') {
+                const name = input.value.trim();
+                if (!name) return;
+                showBrokerReferralModal(name, input, dropdown);
+                return;
+            }
+            if (action === 'select') {
+                const id = option.dataset.brokerReferralId;
+                const name = option.textContent.trim();
+                input.value = name;
+                input.dataset.brokerReferralId = id || '';
+                input.setAttribute('data-broker-referral-id', id || '');
+                dropdown.style.display = 'none';
+                const row = input.closest('tr'); if (row) row.classList.add('has-changes');
+            }
+        });
+    });
+}
+
+// Show Broker/Referral creation modal (for pipeline table "Add new" flow)
+function showBrokerReferralModal(prepopulatedName, inputElement, dropdownElement) {
+    const modal = document.getElementById('broker-referral-modal');
+    const form = document.getElementById('broker-referral-form');
+    const nameInput = document.getElementById('broker-referral-name');
+    const emailInput = document.getElementById('broker-referral-email');
+    const phoneInput = document.getElementById('broker-referral-phone');
+    if (!modal || !form || !nameInput) return;
+    modal._inputElement = inputElement;
+    modal._dropdownElement = dropdownElement;
+    nameInput.value = prepopulatedName || '';
+    if (emailInput) emailInput.value = '';
+    if (phoneInput) phoneInput.value = '';
+    modal.style.display = 'flex';
+    setTimeout(() => emailInput ? emailInput.focus() : nameInput.focus(), 100);
+}
+
+// Initialize Broker/Referral modal event listeners
+function initBrokerReferralModal() {
+    const modal = document.getElementById('broker-referral-modal');
+    const form = document.getElementById('broker-referral-form');
+    const closeBtn = document.getElementById('close-broker-referral-modal');
+    const cancelBtn = document.getElementById('cancel-broker-referral-btn');
+    if (!modal || !form) return;
+    const closeModal = () => {
+        modal.style.display = 'none';
+        modal._inputElement = null;
+        modal._dropdownElement = null;
+    };
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nameInput = document.getElementById('broker-referral-name');
+        const emailInput = document.getElementById('broker-referral-email');
+        const phoneInput = document.getElementById('broker-referral-phone');
+        const name = (nameInput && nameInput.value) ? nameInput.value.trim() : '';
+        const email = (emailInput && emailInput.value) ? emailInput.value.trim() : '';
+        const phone = (phoneInput && phoneInput.value) ? phoneInput.value.trim() : '';
+        if (!name) {
+            alert('Name is required.');
+            if (nameInput) nameInput.focus();
+            return;
+        }
+        const inputEl = modal._inputElement;
+        const dropdownEl = modal._dropdownElement;
+        try {
+            const payload = { Name: name };
+            if (email) payload.Email = email;
+            if (phone) payload.Phone = phone;
+            const createRes = await API.createBrokerReferralContact(payload);
+            if (createRes.success && createRes.data) {
+                const id = createRes.data.BrokerReferralContactId ?? createRes.data.Id;
+                const displayName = createRes.data.Name || name;
+                if (inputEl) {
+                    inputEl.value = displayName;
+                    inputEl.dataset.brokerReferralId = String(id);
+                    inputEl.setAttribute('data-broker-referral-id', String(id));
+                    const row = inputEl.closest('tr');
+                    if (row) row.classList.add('has-changes');
+                }
+                if (dropdownEl) dropdownEl.style.display = 'none';
+                closeModal();
+            }
+        } catch (err) {
+            console.warn('Create broker/referral failed:', err);
+        }
+    });
+}
+
 // Show Pre-Con Manager creation modal
 function showPreConManagerModal(prepopulatedName, inputElement, wrapperElement, dropdownElement) {
     const modal = document.getElementById('precon-manager-modal');
@@ -7217,9 +8226,25 @@ function addNewDealRow() {
         <td><input type="text" class="deal-pipeline-field" data-field="PurchasingEntity" value="" /></td>
         <td><input type="checkbox" class="deal-pipeline-field" data-field="Cash" /></td>
         <td><input type="checkbox" class="deal-pipeline-field" data-field="OpportunityZone" /></td>
+        <td>
+            <div class="searchable-select-wrapper" data-field="BrokerReferralContactId">
+                <input type="text" class="searchable-select-input deal-pipeline-field broker-referral-input" data-field="BrokerReferralContactId" data-broker-referral-id="" value="" placeholder="Search or add contact..." autocomplete="off" style="min-width: 140px;" />
+                <div class="searchable-select-dropdown" style="display: none;"><div class="searchable-select-options"></div></div>
+            </div>
+        </td>
+        <td><input type="text" class="deal-pipeline-field" data-field="PriceRaw" value="" placeholder="e.g. -, TBD" style="min-width: 80px;" /></td>
+        <td>
+            <select class="deal-pipeline-field" data-field="ListingStatus">
+                <option value="">--</option>
+                <option value="Listed">Listed</option>
+                <option value="Unlisted">Unlisted</option>
+            </select>
+        </td>
+        <td><input type="text" class="deal-pipeline-field" data-field="Zoning" value="" placeholder="e.g. CH" style="min-width: 80px;" /></td>
+        <td><input type="text" class="deal-pipeline-field" data-field="County" value="" placeholder="County/Parish" style="min-width: 100px;" title="County or Parish" /></td>
         <td><textarea class="deal-pipeline-field" data-field="Notes" rows="4" style="min-width: 300px; width: 100%;"></textarea></td>
         <td class="deal-pipeline-actions">
-            <button class="save-btn" onclick="saveDealPipelineRow('new', null)" title="Save this new deal">Save</button>
+            <button class="save-btn" onclick="saveDealPipelineRow(event, 'new', null)" title="Save this new deal">Save</button>
             <button class="cancel-new-deal-btn" onclick="cancelNewDealRow(this)" title="Cancel and remove this new deal">Cancel</button>
         </td>
     `;
@@ -7281,6 +8306,7 @@ function addNewDealRow() {
                 const preConManagers = managersResponse.data || [];
                 initializeSearchableSelects(preConManagers);
             }
+            initializeBrokerReferralSelects();
         } catch (error) {
             console.warn('Failed to load Pre-Con Managers for new row:', error);
         }
@@ -7415,7 +8441,19 @@ function filterDealPipelineTable(searchTerm) {
 }
 
 // Make functions globally accessible
-window.saveDealPipelineRow = async function(dealId, projectId) {
+window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
+    // Support (event, dealId, projectId) when event is passed from onclick so we save the row that was clicked
+    let dealId = dealIdOrEvent;
+    let row = null;
+    if (dealIdOrEvent && typeof dealIdOrEvent === 'object' && dealIdOrEvent.target) {
+        const ev = dealIdOrEvent;
+        row = (ev.target && ev.target.closest) ? ev.target.closest('tr') : null;
+        if (row) {
+            dealId = row.getAttribute('data-deal-id') || row.dataset?.dealId || 'new';
+            projectId = row.getAttribute('data-project-id') || row.dataset?.projectId || projectId || '';
+        }
+    }
+    
     // Check authentication - allow if authenticated (edit mode is optional for viewing, but required for editing)
     if (!isAuthenticated) {
         alert('You must be logged in to save changes. Please log in and try again.');
@@ -7431,11 +8469,13 @@ window.saveDealPipelineRow = async function(dealId, projectId) {
         }
     }
     
-    // Handle new deals (dealId === 'new' or empty)
+    // Resolve row: prefer row from click event so we always save the row the user clicked
     const isNewDeal = !dealId || dealId === 'new' || dealId === '';
-    const row = isNewDeal 
-        ? document.querySelector(`tr[data-deal-id=""]`) || document.querySelector(`tr:not([data-deal-id])`)
-        : document.querySelector(`tr[data-deal-id="${dealId}"]`);
+    if (!row) {
+        row = isNewDeal
+            ? document.querySelector(`tr[data-deal-id=""]`) || document.querySelector(`tr:not([data-deal-id])`)
+            : document.querySelector(`tr[data-deal-id="${dealId}"]`);
+    }
     
     if (!row) {
         alert('Could not find deal row to save.');
@@ -7445,10 +8485,10 @@ window.saveDealPipelineRow = async function(dealId, projectId) {
     const fields = row.querySelectorAll('.deal-pipeline-field');
     const data = {};
     
-    // Validate required fields
+    // Validate required fields (use the row we're actually saving)
     const projectNameField = row.querySelector('[data-field="ProjectName"]');
     if (!projectNameField || !projectNameField.value.trim()) {
-        alert('Project Name is required.');
+        alert('Project Name is required. Enter a name in the Project Name column for this row.');
         projectNameField?.focus();
         return;
     }
@@ -7515,6 +8555,37 @@ window.saveDealPipelineRow = async function(dealId, projectId) {
         }
     }
     
+    // Resolve Broker/Referral contact: if user typed a name but no ID, search or create
+    const brokerReferralField = row.querySelector('.broker-referral-input');
+    if (brokerReferralField && brokerReferralField.value.trim()) {
+        let contactId = brokerReferralField.dataset.brokerReferralId || brokerReferralField.getAttribute('data-broker-referral-id');
+        if (!contactId) {
+            const name = brokerReferralField.value.trim();
+            try {
+                const listRes = await API.listBrokerReferralContacts(name);
+                const contacts = listRes.data || [];
+                let match = contacts.find(c => (c.Name || '').trim().toLowerCase() === name.toLowerCase());
+                if (!match && contacts.length > 0) match = contacts.find(c => (c.Name || '').toLowerCase().includes(name.toLowerCase()));
+                if (match && match.BrokerReferralContactId) {
+                    contactId = String(match.BrokerReferralContactId);
+                    brokerReferralField.dataset.brokerReferralId = contactId;
+                    brokerReferralField.setAttribute('data-broker-referral-id', contactId);
+                    brokerReferralField.value = match.Name || name;
+                } else {
+                    const createRes = await API.createBrokerReferralContact({ Name: name });
+                    if (createRes.success && createRes.data && createRes.data.BrokerReferralContactId) {
+                        contactId = String(createRes.data.BrokerReferralContactId);
+                        brokerReferralField.dataset.brokerReferralId = contactId;
+                        brokerReferralField.setAttribute('data-broker-referral-id', contactId);
+                        brokerReferralField.value = createRes.data.Name || name;
+                    }
+                }
+            } catch (err) {
+                console.warn('Broker/Referral resolve failed:', err);
+            }
+        }
+    }
+    
     fields.forEach(field => {
         const fieldName = field.dataset.field;
         if (!fieldName) return;
@@ -7548,6 +8619,18 @@ window.saveDealPipelineRow = async function(dealId, projectId) {
                 }
             } else if (!field.value.trim()) {
                 // If field is empty, set to null to clear the Pre-Con Manager
+                data[fieldName] = null;
+            }
+            return;
+        }
+        
+        // Handle searchable select for BrokerReferralContactId
+        if (fieldName === 'BrokerReferralContactId' && field.classList.contains('broker-referral-input')) {
+            let contactId = field.dataset.brokerReferralId || field.getAttribute('data-broker-referral-id');
+            if (contactId) {
+                const parsedId = parseInt(contactId);
+                if (!isNaN(parsedId) && parsedId > 0) data[fieldName] = parsedId;
+            } else if (!field.value.trim()) {
                 data[fieldName] = null;
             }
             return;

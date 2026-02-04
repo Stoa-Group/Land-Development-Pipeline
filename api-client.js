@@ -176,6 +176,28 @@
   clearAuthToken();
 }
 
+/**
+ * Domo SSO login – sign in using Domo user email (no password).
+ * Backend looks up auth.[User] by email and returns same JWT as /api/auth/login.
+ * @param {{ email: string, name?: string, userId?: string }} domoUser - From getDomoCurrentUser()
+ * @returns {Promise<object>} { success: true, data: { token, user: {...} } } same shape as login
+ */
+  async function loginWithDomo(domoUser) {
+  if (!domoUser || !domoUser.email || !String(domoUser.email).trim()) {
+    return { success: false, error: { message: 'Email is required for Domo SSO' } };
+  }
+  const body = {
+    email: String(domoUser.email).trim(),
+    name: domoUser.name ? String(domoUser.name).trim() : undefined,
+    userId: domoUser.userId ? String(domoUser.userId).trim() : undefined
+  };
+  const result = await apiRequest('/api/auth/domo', 'POST', body);
+  if (result.success && result.data && result.data.token) {
+    authToken = result.data.token;
+  }
+  return result;
+}
+
 // ============================================================
 // CORE SCHEMA - Projects, Banks, Persons, Equity Partners
 // ============================================================
@@ -223,6 +245,15 @@
 }
 
 // PERSONS
+  /**
+   * Unified contact book: each individual appears once (not once as individual investor and again as investor rep).
+   * Returns Persons plus Individual equity partners with no linked Person. Each row has PersonId and/or EquityPartnerId, FullName, Email, Phone, Title, Notes, IsInvestorRep, IsIndividualInvestor.
+   * @returns {Promise<object>} { success: true, data: Array<{ PersonId?, EquityPartnerId?, FullName, Email?, Phone?, Title?, Notes?, IsInvestorRep, IsIndividualInvestor }> }
+   */
+  async function getContactBook() {
+  return apiRequest('/api/core/contacts');
+}
+
   async function getAllPersons() {
   return apiRequest('/api/core/persons');
 }
@@ -506,6 +537,7 @@
  * @param {string} [data.FinancingStage] - Financing stage
  * @param {number} [data.BirthOrder] - Birth order from Banking Dashboard
  * @param {string} [data.ConstructionCompletionDate] - Target completion date (text: "May-23", "Dec-25")
+ * @param {string} [data.ConstructionCompletionSource] - Source of completion date (e.g. "Procore", "Manual") for UI label
  * @param {string} [data.LeaseUpCompletedDate] - Target lease-up date (text: "Apr-25")
  * @param {string} [data.IOMaturityDate] - I/O maturity date (YYYY-MM-DD)
  * @param {string} [data.MiniPermMaturity] - Mini-perm maturity date (YYYY-MM-DD)
@@ -551,6 +583,7 @@
  * @param {string} [data.FinancingStage] - Financing stage
  * @param {number} [data.BirthOrder] - Birth order
  * @param {string} [data.ConstructionCompletionDate] - Target completion date
+ * @param {string} [data.ConstructionCompletionSource] - Source of completion date (e.g. "Procore", "Manual")
  * @param {string} [data.LeaseUpCompletedDate] - Target lease-up date
  * @param {string} [data.IOMaturityDate] - I/O maturity date
  * @param {string} [data.MiniPermMaturity] - Mini-perm maturity date
@@ -610,6 +643,36 @@
  */
   async function deleteLoan(id) {
   return apiRequest(`/api/banking/loans/${id}`, 'DELETE');
+}
+
+// LOAN MODIFICATIONS (permanent debt, extensions, restructures)
+  async function getAllLoanModifications() {
+  return apiRequest('/api/banking/loan-modifications');
+}
+  async function getLoanModificationById(id) {
+  return apiRequest(`/api/banking/loan-modifications/${id}`);
+}
+  async function getLoanModificationsByProject(projectId) {
+  return apiRequest(`/api/banking/loan-modifications/project/${projectId}`);
+}
+/**
+ * Create a loan modification (REQUIRES AUTHENTICATION)
+ * @param {object} data - { ProjectId (required), LoanId (optional), Type (required, e.g. "Restructure", "Modification", "Extension"), Description, EffectiveDate (YYYY-MM-DD), Notes }
+ * @returns {Promise<object>} { success: true, data: { LoanModificationId, ... } }
+ */
+  async function createLoanModification(data) {
+  return apiRequest('/api/banking/loan-modifications', 'POST', data);
+}
+/**
+ * Update a loan modification (REQUIRES AUTHENTICATION)
+ * @param {number} id - LoanModificationId
+ * @param {object} data - Fields to update (ProjectId, LoanId, Type, Description, EffectiveDate, Notes)
+ */
+  async function updateLoanModification(id, data) {
+  return apiRequest(`/api/banking/loan-modifications/${id}`, 'PUT', data);
+}
+  async function deleteLoanModification(id) {
+  return apiRequest(`/api/banking/loan-modifications/${id}`, 'DELETE');
 }
 
 // DSCR TESTS
@@ -1758,6 +1821,57 @@
 }
 
 // ============================================================
+// PIPELINE: BROKER/REFERRAL CONTACTS (Land Development Pipeline)
+// ============================================================
+
+/**
+ * Get all broker/referral contacts, optionally filtered by name search
+ * @param {string} [q] - Optional search query; partial case-insensitive match on Name
+ * @returns {Promise<object>} { success: true, data: [{ BrokerReferralContactId, Name, Email, Phone, CreatedAt, ModifiedAt }, ...] }
+ */
+  async function getAllBrokerReferralContacts(q) {
+  const query = q != null && q !== '' ? `?q=${encodeURIComponent(q)}` : '';
+  return apiRequest(`/api/pipeline/broker-referral-contacts${query}`);
+}
+
+/**
+ * Get a broker/referral contact by ID
+ * @param {number} id - BrokerReferralContactId
+ * @returns {Promise<object>} { success: true, data: { BrokerReferralContactId, Name, Email, Phone, CreatedAt, ModifiedAt } }
+ */
+  async function getBrokerReferralContactById(id) {
+  return apiRequest(`/api/pipeline/broker-referral-contacts/${id}`);
+}
+
+/**
+ * Create a broker/referral contact
+ * @param {object} data - { Name (required), Email?, Phone? }
+ * @returns {Promise<object>} { success: true, data: { BrokerReferralContactId, Name, Email, Phone, CreatedAt, ModifiedAt } }
+ */
+  async function createBrokerReferralContact(data) {
+  return apiRequest('/api/pipeline/broker-referral-contacts', 'POST', data);
+}
+
+/**
+ * Update a broker/referral contact
+ * @param {number} id - BrokerReferralContactId
+ * @param {object} data - { Name?, Email?, Phone? } (only send fields to update)
+ * @returns {Promise<object>} { success: true, data: { ... } }
+ */
+  async function updateBrokerReferralContact(id, data) {
+  return apiRequest(`/api/pipeline/broker-referral-contacts/${id}`, 'PUT', data);
+}
+
+/**
+ * Delete a broker/referral contact. Fails with 409 if any deal references this contact.
+ * @param {number} id - BrokerReferralContactId
+ * @returns {Promise<object>} { success: true, message: 'Contact deleted' }
+ */
+  async function deleteBrokerReferralContact(id) {
+  return apiRequest(`/api/pipeline/broker-referral-contacts/${id}`, 'DELETE');
+}
+
+// ============================================================
 // PIPELINE: DEAL PIPELINE (Land Development Deal Tracker)
 // ============================================================
 
@@ -1767,6 +1881,8 @@
  * Returns all deals with CORE attributes joined:
  * - ProjectName, City, State, Region, Units, ProductType, Stage (from core.Project)
  * - All Deal Pipeline specific fields (Bank, StartDate, UnitCount, PreConManager, etc.)
+ * - BrokerReferralContactId, PriceRaw, ListingStatus, Zoning, County
+ * - Optional nested BrokerReferralContact: { BrokerReferralContactId, Name, Email, Phone }
  * 
  * @returns {Promise<object>} { success: true, data: [...] }
  * @example
@@ -1829,6 +1945,8 @@
  * - Zoning: string (Site Tracking)
  * - Zoned: string (Yes/No/Partially, Site Tracking)
  * - ListingStatus: string (Listed/Unlisted, Site Tracking)
+ * - BrokerReferralContactId: number | null (FK to Broker/Referral Contact)
+ * - PriceRaw: string (e.g. "-", "$1.2M", "TBD")
  * - BrokerReferralSource: string (Site Tracking)
  * - RejectedReason: string (Site Tracking)
  * - Latitude: number (optional; also populated from KMZ attachments)
@@ -1962,6 +2080,107 @@
 }
 
 // ============================================================
+// BANKING FILES (per-project banking documents – separate from Deal Pipeline)
+// Backend must implement these endpoints. See BACKEND-GUIDE-BANKING-FILES.md.
+// ============================================================
+
+/**
+ * List all banking file attachments for a project (Banking Dashboard only; not Deal Pipeline).
+ * @param {number} projectId - Project ID (ProjectId / Row)
+ * @returns {Promise<object>} { success: true, data: [{ BankingFileId, ProjectId, FileName, ContentType, FileSizeBytes, CreatedAt }, ...] }
+ */
+  async function listBankingFiles(projectId) {
+  return apiRequest(`/api/banking/projects/${projectId}/files`);
+}
+
+/**
+ * Upload a banking file for a project. Uses multipart/form-data; field name "file". Max size 200MB.
+ * @param {number} projectId - Project ID
+ * @param {File|Blob} file - File to upload
+ * @returns {Promise<object>} { success: true, data: { BankingFileId, ProjectId, FileName, ContentType, FileSizeBytes, CreatedAt } }
+ */
+  async function uploadBankingFile(projectId, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const options = {
+    method: 'POST',
+    headers: {},
+    body: formData,
+  };
+  if (authToken) {
+    options.headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  const response = await fetch(`${API_BASE_URL}/api/banking/projects/${projectId}/files`, options);
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error?.message || `API Error: ${response.status}`);
+  }
+  return result;
+}
+
+/**
+ * Get download URL for a banking file.
+ * NOTE: Opening this URL in a new tab will NOT send the auth token, so the API will return 401.
+ * Use downloadBankingFile(attachmentId) instead to open/view with your current token.
+ * @param {number} attachmentId - BankingFileId
+ * @returns {string} Full URL to download endpoint
+ */
+  function getBankingFileDownloadUrl(attachmentId) {
+  return `${API_BASE_URL}/api/banking/files/${attachmentId}/download`;
+}
+
+/**
+ * Download or open a banking file using the current auth token (for use when user clicks the file).
+ * Fetches with Bearer token, then opens the file in a new tab (or triggers download with filename).
+ * @param {number} attachmentId - BankingFileId
+ * @param {{ openInNewTab?: boolean }} options - openInNewTab: true = open in new tab (default); false = trigger download with filename
+ * @returns {Promise<void>}
+ */
+  async function downloadBankingFile(attachmentId, options = {}) {
+  const { openInNewTab = true } = options;
+  const token = authToken;
+  if (!token) {
+    throw new Error('Not authenticated. Call login() or setAuthToken() before downloading files.');
+  }
+  const response = await fetch(`${API_BASE_URL}/api/banking/files/${attachmentId}/download`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Download failed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const filename = (response.headers.get('Content-Disposition') || '').match(/filename\*?=(?:UTF-8'')?["']?([^"'\s;]+)["']?/i)?.[1]
+    || response.headers.get('X-File-Name')
+    || `banking-file-${attachmentId}`;
+  const blobUrl = URL.createObjectURL(blob);
+  if (openInNewTab) {
+    const w = window.open(blobUrl, '_blank');
+    if (w) setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+    else { URL.revokeObjectURL(blobUrl); throw new Error('Popup blocked. Allow popups or use download: false.'); }
+  } else {
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = decodeURIComponent(filename);
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 500);
+  }
+}
+
+/**
+ * Delete a banking file (and file on server).
+ * @param {number} attachmentId - BankingFileId
+ * @returns {Promise<object>} { success: true, message: 'File deleted' }
+ */
+  async function deleteBankingFile(attachmentId) {
+  return apiRequest(`/api/banking/files/${attachmentId}`, 'DELETE');
+}
+
+// ============================================================
 // IMS INVESTOR HELPER FUNCTIONS (Legacy - kept for compatibility)
 // ============================================================
 
@@ -2060,6 +2279,7 @@
   
   // Authentication functions
   API.login = login;
+  API.loginWithDomo = loginWithDomo;
   API.verifyAuth = verifyAuth;
   API.getCurrentUser = getCurrentUser;
   API.logout = logout;
@@ -2079,6 +2299,7 @@
   API.deleteBank = deleteBank;
   
   // Core - Persons
+  API.getContactBook = getContactBook;
   API.getAllPersons = getAllPersons;
   API.getPersonById = getPersonById;
   API.createPerson = createPerson;
@@ -2121,6 +2342,12 @@
   API.updateLoan = updateLoan;
   API.updateLoanByProject = updateLoanByProject;
   API.deleteLoan = deleteLoan;
+  API.getAllLoanModifications = getAllLoanModifications;
+  API.getLoanModificationById = getLoanModificationById;
+  API.getLoanModificationsByProject = getLoanModificationsByProject;
+  API.createLoanModification = createLoanModification;
+  API.updateLoanModification = updateLoanModification;
+  API.deleteLoanModification = deleteLoanModification;
   
   // Banking - DSCR Tests
   API.getAllDSCRTests = getAllDSCRTests;
@@ -2232,6 +2459,13 @@
   API.updateClosedProperty = updateClosedProperty;
   API.deleteClosedProperty = deleteClosedProperty;
   
+  // Pipeline - Broker/Referral Contacts
+  API.getAllBrokerReferralContacts = getAllBrokerReferralContacts;
+  API.getBrokerReferralContactById = getBrokerReferralContactById;
+  API.createBrokerReferralContact = createBrokerReferralContact;
+  API.updateBrokerReferralContact = updateBrokerReferralContact;
+  API.deleteBrokerReferralContact = deleteBrokerReferralContact;
+  
   // Pipeline - Deal Pipeline
   API.getAllDealPipelines = getAllDealPipelines;
   API.getDealPipelineById = getDealPipelineById;
@@ -2245,6 +2479,12 @@
   API.updateDealPipelineAttachment = updateDealPipelineAttachment;
   API.getDealPipelineAttachmentDownloadUrl = getDealPipelineAttachmentDownloadUrl;
   API.deleteDealPipelineAttachment = deleteDealPipelineAttachment;
+  // Banking Files (per-project; separate from Deal Pipeline)
+  API.listBankingFiles = listBankingFiles;
+  API.uploadBankingFile = uploadBankingFile;
+  API.getBankingFileDownloadUrl = getBankingFileDownloadUrl;
+  API.downloadBankingFile = downloadBankingFile;
+  API.deleteBankingFile = deleteBankingFile;
 
   // IMS Investor Resolution
   API.getInvestorNameFromIMSId = getInvestorNameFromIMSId;

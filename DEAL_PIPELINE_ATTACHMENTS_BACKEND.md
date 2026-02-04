@@ -48,6 +48,16 @@ So to fix "File not found on server":
 
 ---
 
+## 6. File versioning (optional)
+
+To support **version history** and **Upload new version** in the UI:
+
+- **List response:** Include optional `ParentAttachmentId` (nullable) and `VersionNumber` (integer, 1-based) when you support versioning. Attachments with the same `ParentAttachmentId` (or same root) are treated as versions of one document.
+- **Upload new version:** Accept optional `parentAttachmentId` in the request body (e.g. form field) or query. When present, create a new attachment row with `ParentAttachmentId = parentAttachmentId`, same `DealPipelineId`, and store the new file. Return the new attachment in the same shape as a normal upload.
+- If you do not support versioning yet, the frontend still works: it groups attachments by base filename and shows "Version 1, 2, …" by upload date; "Upload new version" uploads a new file (same as a normal upload).
+
+---
+
 **Summary:** "File not found on server" almost always means the **download** handler could not find the file at the path stored for that attachment. Fix by ensuring **upload** persists the file and saves the correct path, and **download** reads from that same path.
 
 ---

@@ -16,7 +16,7 @@
         <div class="project-header">
           <div class="project-title-row">
             <button class="back-to-nav-btn" id="back-to-nav-btn" title="Back to Navigation" style="display: none;">
-              <span class="back-arrow-icon">←</span> Back
+              <span class="back-arrow-icon" aria-hidden="true">&#8592;</span> Back
             </button>
             <img src="Logos/STOA20-Logo-Mark-Green.jpg" alt="STOA" class="stoa-logo" />
             <span class="project-title">Deal Pipeline (Beta)</span>
@@ -33,7 +33,7 @@
           <div class="nav-tabs">
             <button class="nav-tab" data-view="overview">Overview</button>
             <button class="nav-tab active" data-view="list">List</button>
-            <button class="nav-tab" data-view="location">By Location</button>
+            <button class="nav-tab" data-view="location">Map</button>
             <button class="nav-tab" data-view="bank">By Bank</button>
             <button class="nav-tab" data-view="product">By Product Type</button>
             <button class="nav-tab" data-view="timeline">Timeline</button>
@@ -44,16 +44,20 @@
 
         <!-- Filter and Sort Controls -->
         <div class="filter-controls" id="filter-controls" style="display: none;">
-          <div class="filter-group">
+          <div class="filter-group stage-filter-group">
             <label>Filter by Stage:</label>
-            <select id="stage-filter" class="filter-select">
-              <option value="">All Stages</option>
-            </select>
+            <div class="stage-filter-dropdown-wrap">
+              <button type="button" class="stage-filter-trigger" id="stage-filter-trigger" aria-haspopup="true" aria-expanded="false" onclick="event.preventDefault(); event.stopPropagation(); window.toggleMainStageDropdown && window.toggleMainStageDropdown();">All Stages</button>
+              <div class="stage-filter-dropdown-panel" id="stage-filter-dropdown-panel" role="menu" aria-hidden="true">
+                <div class="stage-filter-checkboxes" id="stage-filter-checkboxes"></div>
+                <button type="button" class="stage-filter-clear-btn" id="stage-filter-clear-btn">Clear</button>
+              </div>
+            </div>
           </div>
           <div class="filter-group">
-            <label>Filter by Location:</label>
-            <select id="location-filter" class="filter-select">
-              <option value="">All Locations</option>
+            <label>Filter by State:</label>
+            <select id="state-filter" class="filter-select">
+              <option value="">All States</option>
             </select>
           </div>
           <div class="filter-group">
@@ -335,6 +339,45 @@
               </div>
             </div>
             
+            <h3 style="margin-top: 24px; margin-bottom: 16px; color: var(--primary-green);">Land Development (optional)</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-broker-referral">Broker/Referral:</label>
+                <input type="text" id="edit-broker-referral" name="BrokerReferralName" placeholder="Search or type name (contact lookup)">
+                <input type="hidden" id="edit-broker-referral-id" name="BrokerReferralContactId">
+                <small style="display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px;">Search from contacts or create new when saving.</small>
+              </div>
+              <div class="form-group">
+                <label for="edit-broker-email">Broker Email (optional, for new contacts):</label>
+                <input type="email" id="edit-broker-email" name="BrokerEmail" placeholder="email@example.com">
+              </div>
+              <div class="form-group">
+                <label for="edit-broker-phone">Broker Phone (optional, for new contacts):</label>
+                <input type="tel" id="edit-broker-phone" name="BrokerPhone" placeholder="e.g. 555-1234">
+              </div>
+              <div class="form-group">
+                <label for="edit-price-raw">Price (raw):</label>
+                <input type="text" id="edit-price-raw" name="PriceRaw" placeholder="e.g. -, TBD, $1.2M">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-listing-status">Listed/Unlisted:</label>
+                <select id="edit-listing-status" name="ListingStatus">
+                  <option value="">--</option>
+                  <option value="Listed">Listed</option>
+                  <option value="Unlisted">Unlisted</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="edit-zoning">Zoning:</label>
+                <input type="text" id="edit-zoning" name="Zoning" placeholder="e.g. CH">
+              </div>
+              <div class="form-group">
+                <label for="edit-county-parish">County/Parish:</label>
+                <input type="text" id="edit-county-parish" name="County" placeholder="e.g. Lafayette">
+              </div>
+            </div>
             <h3 style="margin-top: 24px; margin-bottom: 16px; color: var(--primary-green);">Team & Notes</h3>
             <div class="form-row">
               <div class="form-group">
@@ -373,6 +416,36 @@
     <script src="config.js"></script>
     
     <!-- API Client -->
+    <!-- Broker/Referral Create Modal (for pipeline table "Add new" flow) -->
+    <div class="modal-overlay" id="broker-referral-modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Create Broker/Referral Contact</h2>
+          <button class="modal-close" id="close-broker-referral-modal">Close</button>
+        </div>
+        <div class="modal-body">
+          <form id="broker-referral-form">
+            <div class="form-group">
+              <label for="broker-referral-name">Name *:</label>
+              <input type="text" id="broker-referral-name" name="Name" required autocomplete="name">
+            </div>
+            <div class="form-group">
+              <label for="broker-referral-email">Email (optional):</label>
+              <input type="email" id="broker-referral-email" name="Email" autocomplete="email">
+            </div>
+            <div class="form-group">
+              <label for="broker-referral-phone">Phone (optional):</label>
+              <input type="tel" id="broker-referral-phone" name="Phone" autocomplete="tel">
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn-secondary" id="cancel-broker-referral-btn">Cancel</button>
+              <button type="submit" class="btn-primary">Create Contact</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
     <!-- Pre-Con Manager Create Modal -->
     <div class="modal-overlay" id="precon-manager-modal" style="display: none;">
       <div class="modal-content">
