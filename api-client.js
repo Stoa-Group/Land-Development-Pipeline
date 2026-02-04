@@ -1902,6 +1902,8 @@
 
 // ============================================================
 // LAND DEVELOPMENT CONTACTS (contact book + follow-up reminders)
+// Individuals only (core.Person). ContactId = PersonId. List returns all individuals
+// with optional land-dev extension fields; delete removes extension only.
 // ============================================================
 
 /**
@@ -1952,16 +1954,16 @@
 /**
  * Delete a land development contact (REQUIRES AUTHENTICATION). Removes only the land-dev extension row; core.Person is preserved.
  * @param {number} id - ContactId (core.Person.PersonId)
- * @returns {Promise<object>} { success: true, message: 'Contact deleted' }
+ * @returns {Promise<object>} { success: true, message: 'Land development attributes removed' }
  */
   async function deleteLandDevelopmentContact(id) {
   return apiRequest(`/api/land-development/contacts/${id}`, 'DELETE');
 }
 
 /**
- * Send follow-up reminder email (REQUIRES AUTHENTICATION)
- * @param {object} data - { contactId?: number, email?: string, message?: string } - contactId = PersonId; provide contactId and/or email; optional custom message
- * @returns {Promise<object>} { success: true, message: 'Reminder sent' } or 503 if email not configured (set SMTP_HOST, MAIL_FROM)
+ * Send follow-up reminder email (REQUIRES AUTHENTICATION). Backend sends plain-text and HTML (STOA-styled) to the contact's email.
+ * @param {object} data - { contactId?: number, email?: string, message?: string } - contactId = PersonId; provide contactId and/or email; message = optional custom body (HTML-escaped)
+ * @returns {Promise<object>} { success: true, message: 'Reminder sent' } or 400/404/503/500. Server needs SMTP_HOST, MAIL_FROM, and optionally SMTP_USER with SMTP_PASS or SMTP_PASSWORD.
  */
   async function sendLandDevelopmentReminder(data) {
   return apiRequest('/api/land-development/contacts/send-reminder', 'POST', data);
