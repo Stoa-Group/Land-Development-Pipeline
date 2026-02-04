@@ -1907,11 +1907,11 @@
 // ============================================================
 
 /**
- * Get all land development contacts (core.Person left-joined with land-dev extension).
- * @param {object} [params] - Optional: { type?, city?, state?, upcomingOnly?, q? } - type: 'Land Owner'|'Developer'|'Broker'; upcomingOnly: true for follow-up due in next 14 days; q: search Name, Email, Notes
- * @returns {Promise<object>} { success: true, data: [{ ContactId, Name, Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, NextFollowUpDate, UpcomingFollowUp, CreatedAt, ModifiedAt }, ...] } — ContactId = core.Person.PersonId
+ * List land development contacts with optional filters. GET /api/land-development/contacts
+ * @param {object} [params] - Query (all optional): type ('Land Owner'|'Developer'|'Broker'), city, state, q (search Name, Email, Notes), upcomingOnly (boolean)
+ * @returns {Promise<{ success: boolean, data?: Array<Contact>, error?: { message: string } }>} data = contacts with ContactId, Name, Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, NextFollowUpDate, UpcomingFollowUp, etc.
  */
-  async function getAllLandDevelopmentContacts(params) {
+  async function getLandDevelopmentContacts(params) {
   const sp = params && typeof params === 'object' ? params : {};
   const qs = new URLSearchParams();
   if (sp.type) qs.set('type', sp.type);
@@ -1924,49 +1924,49 @@
 }
 
 /**
- * Get a land development contact by ID (merged core.Person + extension).
- * @param {number} id - ContactId (core.Person.PersonId)
- * @returns {Promise<object>} { success: true, data: { ContactId, Name, Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, NextFollowUpDate, UpcomingFollowUp, ... } }
+ * Get one land development contact by ContactId. GET /api/land-development/contacts/:id
+ * @param {number} id - ContactId (core.contacts.Id / PersonId)
+ * @returns {Promise<{ success: boolean, data?: Contact, error?: { message: string } }>}
  */
-  async function getLandDevelopmentContactById(id) {
+  async function getLandDevelopmentContact(id) {
   return apiRequest(`/api/land-development/contacts/${id}`);
 }
 
 /**
- * Create a land development contact (REQUIRES AUTHENTICATION). Creates core.Person then pipeline.LandDevelopmentContactExtension.
- * @param {object} data - { Name (required), Email?, PhoneNumber?, OfficeAddress?, Type? ('Land Owner'|'Developer'|'Broker'), Notes?, City?, State?, DateOfContact? (YYYY-MM-DD), FollowUpTimeframeDays? }
- * @returns {Promise<object>} { success: true, data: { ContactId, Name, Email, PhoneNumber, ... } } — ContactId = new PersonId
+ * Create a land development contact. POST /api/land-development/contacts (REQUIRES AUTHENTICATION)
+ * @param {object} data - Name (required); Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays (optional)
+ * @returns {Promise<{ success: boolean, data?: Contact, error?: { message: string } }>} data = merged contact (core + land-dev) including ContactId
  */
   async function createLandDevelopmentContact(data) {
   return apiRequest('/api/land-development/contacts', 'POST', data);
 }
 
 /**
- * Update a land development contact (REQUIRES AUTHENTICATION). Updates core.Person and upserts pipeline.LandDevelopmentContactExtension.
- * @param {number} id - ContactId (core.Person.PersonId)
- * @param {object} data - Fields to update (same as create)
- * @returns {Promise<object>} { success: true, data: { ContactId, Name, ... } }
+ * Update a land development contact. PUT /api/land-development/contacts/:id (REQUIRES AUTHENTICATION)
+ * @param {number} id - ContactId (core.contacts.Id)
+ * @param {object} data - Same field set as create; only include fields to update
+ * @returns {Promise<{ success: boolean, data?: Contact, error?: { message: string } }>}
  */
   async function updateLandDevelopmentContact(id, data) {
   return apiRequest(`/api/land-development/contacts/${id}`, 'PUT', data);
 }
 
 /**
- * Delete a land development contact (REQUIRES AUTHENTICATION). Removes only the land-dev extension row; core.Person is preserved.
- * @param {number} id - ContactId (core.Person.PersonId)
- * @returns {Promise<object>} { success: true, message: 'Land development attributes removed' }
+ * Remove land-dev extension for contact (core contact remains). DELETE /api/land-development/contacts/:id (REQUIRES AUTHENTICATION)
+ * @param {number} id - ContactId
+ * @returns {Promise<{ success: boolean, message?: string, error?: { message: string } }>}
  */
   async function deleteLandDevelopmentContact(id) {
   return apiRequest(`/api/land-development/contacts/${id}`, 'DELETE');
 }
 
 /**
- * Send follow-up reminder email (REQUIRES AUTHENTICATION). Backend sends plain-text and HTML (STOA-styled) to the contact's email.
- * @param {object} data - { contactId?: number, email?: string, message?: string } - contactId = PersonId; provide contactId and/or email; message = optional custom body (HTML-escaped)
- * @returns {Promise<object>} { success: true, message: 'Reminder sent' } or 400/404/503/500. Server needs SMTP_HOST, MAIL_FROM, and optionally SMTP_USER with SMTP_PASS or SMTP_PASSWORD.
+ * Send follow-up reminder email. POST /api/land-development/contacts/send-reminder (REQUIRES AUTHENTICATION)
+ * @param {object} payload - contactId (number, optional), email (string, optional), message (string, optional). At least one of contactId or email required.
+ * @returns {Promise<{ success: boolean, message?: string, error?: { message: string } }>}
  */
-  async function sendLandDevelopmentReminder(data) {
-  return apiRequest('/api/land-development/contacts/send-reminder', 'POST', data);
+  async function sendLandDevelopmentContactReminder(payload) {
+  return apiRequest('/api/land-development/contacts/send-reminder', 'POST', payload);
 }
 
 // ============================================================
@@ -2566,13 +2566,17 @@
   API.updateBrokerReferralContact = updateBrokerReferralContact;
   API.deleteBrokerReferralContact = deleteBrokerReferralContact;
   
-  // Land Development Contacts
-  API.getAllLandDevelopmentContacts = getAllLandDevelopmentContacts;
-  API.getLandDevelopmentContactById = getLandDevelopmentContactById;
+  // Land Development Contacts (spec: getLandDevelopmentContacts, getLandDevelopmentContact, create, update, delete, sendLandDevelopmentContactReminder)
+  API.getLandDevelopmentContacts = getLandDevelopmentContacts;
+  API.getLandDevelopmentContact = getLandDevelopmentContact;
   API.createLandDevelopmentContact = createLandDevelopmentContact;
   API.updateLandDevelopmentContact = updateLandDevelopmentContact;
   API.deleteLandDevelopmentContact = deleteLandDevelopmentContact;
-  API.sendLandDevelopmentReminder = sendLandDevelopmentReminder;
+  API.sendLandDevelopmentContactReminder = sendLandDevelopmentContactReminder;
+  // Backward-compat aliases
+  API.getAllLandDevelopmentContacts = getLandDevelopmentContacts;
+  API.getLandDevelopmentContactById = getLandDevelopmentContact;
+  API.sendLandDevelopmentReminder = sendLandDevelopmentContactReminder;
   
   // Pipeline - Deal Pipeline
   API.getAllDealPipelines = getAllDealPipelines;
