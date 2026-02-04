@@ -7,6 +7,8 @@
     <!-- ExcelJS for styled Excel export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <!-- JSZip for KMZ (zip) parsing when extracting coordinates -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   </head>
   <body>
     <div class="app-container">
@@ -34,11 +36,11 @@
             <button class="nav-tab" data-view="overview">Overview</button>
             <button class="nav-tab active" data-view="list">List</button>
             <button class="nav-tab" data-view="location">Map</button>
-            <button class="nav-tab" data-view="bank">By Bank</button>
-            <button class="nav-tab" data-view="product">By Product Type</button>
             <button class="nav-tab" data-view="timeline">Timeline</button>
+            <button class="nav-tab" data-view="upcoming-dates">Upcoming Dates</button>
             <button class="nav-tab" data-view="units">Unit Summary</button>
             <button class="nav-tab" data-view="files">Deal Files</button>
+            <button class="nav-tab" data-view="contacts">Contacts</button>
           </div>
         </div>
 
@@ -105,6 +107,8 @@
           <div class="list-view-toggle" id="list-view-toggle" style="display: none;">
             <button class="toggle-btn" data-mode="timeline">By Quarter/Year</button>
             <button class="toggle-btn" data-mode="stage">By Stage</button>
+            <button class="toggle-btn" data-mode="product">By Product Type</button>
+            <button class="toggle-btn" data-mode="bank">By Bank</button>
           </div>
           <!-- Deal List will be populated by JavaScript -->
           <div id="deal-list-container">

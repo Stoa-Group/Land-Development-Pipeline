@@ -3699,6 +3699,264 @@ body.map-fullscreen-active {
     opacity: 0.9;
 }
 
+/* ============================================================
+   UPCOMING DATES VIEW (Land Development)
+   ============================================================ */
+.upcoming-dates-view {
+    padding: 0 0 24px;
+    max-width: 100%;
+}
+.upcoming-dates-view-title {
+    font-size: 1.5rem;
+    margin: 0 0 8px;
+    color: var(--text-primary);
+}
+.upcoming-dates-view-desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0 0 20px;
+}
+.upcoming-dates-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.upcoming-dates-table th,
+.upcoming-dates-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+.upcoming-dates-table th {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+}
+.upcoming-date-row:hover {
+    background-color: var(--hover-bg);
+}
+
+/* ============================================================
+   LAND DEVELOPMENT CONTACTS
+   ============================================================ */
+.contacts-view {
+    padding: 0 0 24px;
+    max-width: 100%;
+}
+.contacts-view-title {
+    font-size: 1.5rem;
+    margin: 0 0 8px;
+    color: var(--text-primary);
+}
+.contacts-view-desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0 0 20px;
+}
+.contacts-upcoming-alert {
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.4);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+.contacts-upcoming-heading {
+    font-size: 1rem;
+    margin: 0 0 12px;
+    color: var(--text-primary);
+}
+.contacts-upcoming-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.contacts-upcoming-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.contacts-upcoming-item:last-child { border-bottom: none; }
+.contacts-upcoming-name { font-weight: 600; }
+.contacts-upcoming-next { color: var(--text-secondary); font-size: 13px; }
+.contacts-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.contacts-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+.contacts-filter-select,
+.contacts-filter-input {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 14px;
+    background: var(--white);
+}
+.contacts-filter-input { min-width: 120px; }
+.contacts-filter-checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    cursor: pointer;
+}
+.contacts-add-btn {
+    padding: 8px 16px;
+    background: var(--primary-green);
+    color: var(--white);
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+}
+.contacts-add-btn:hover { opacity: 0.9; }
+.contacts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.contacts-empty,
+.contacts-error {
+    color: var(--text-secondary);
+    padding: 24px;
+    text-align: center;
+}
+.contacts-error { color: var(--error-color, #b91c1c); }
+.contacts-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px;
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.contacts-card-main { flex: 1; min-width: 200px; }
+.contacts-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.contacts-card-name { font-weight: 600; font-size: 1rem; }
+.contacts-card-meta,
+.contacts-card-dates {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+.contacts-card-type {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    margin-right: 8px;
+}
+.contacts-badge-upcoming {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(234, 179, 8, 0.2);
+    color: #92400e;
+    font-size: 12px;
+    font-weight: 500;
+}
+.contacts-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.contacts-btn {
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--white);
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.contacts-btn:hover { background: var(--hover-bg); }
+.contacts-save-btn,
+.contacts-add-btn { background: var(--primary-green); color: var(--white); border-color: var(--primary-green); }
+.contacts-save-btn:hover { opacity: 0.9; }
+.contacts-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    z-index: 10000;
+    padding: 40px 16px 16px;
+    overflow-y: auto;
+}
+.contacts-modal {
+    background: var(--white);
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 480px;
+    width: 100%;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+.contacts-modal h3 {
+    margin: 0 0 16px;
+    font-size: 1.25rem;
+}
+.contacts-form label {
+    display: block;
+    margin: 8px 0 4px;
+    font-size: 13px;
+    font-weight: 500;
+}
+.contacts-form label:first-of-type { margin-top: 0; }
+.contacts-form input,
+.contacts-form select,
+.contacts-form textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 14px;
+    box-sizing: border-box;
+}
+.contacts-form-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 20px;
+}
+.contacts-form-actions .contacts-cancel-btn { margin-left: auto; }
+.contacts-reminder-desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin: 0 0 16px;
+}
+.contacts-form .required { color: var(--error-color, #b91c1c); }
+
+/* Upcoming Dates view (land development) */
+.upcoming-dates-view { padding: 0 0 24px; max-width: 100%; }
+.upcoming-dates-view-title { font-size: 1.5rem; margin: 0 0 8px; color: var(--text-primary); }
+.upcoming-dates-view-desc { color: var(--text-secondary); font-size: 14px; margin: 0 0 20px; }
+.upcoming-dates-list .no-data { padding: 24px; text-align: center; color: var(--text-secondary); }
+.upcoming-dates-table { width: 100%; border-collapse: collapse; background: var(--white); border-radius: 8px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.upcoming-dates-table th { text-align: left; padding: 12px 16px; font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-secondary); background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
+.upcoming-dates-table td { padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
+.upcoming-date-row:hover { background: var(--hover-bg); }
+
 .deal-detail-item .time-info {
     color: var(--text-secondary);
     font-size: 12px;

@@ -560,14 +560,16 @@ async function syncProcoreDataToDatabase(procoreData, dbDeals) {
                 }
             }
             
-            // Sync coordinates to DealPipeline table (no input field, just stored for map)
-            if (dealPipelineId && procoreProject.latitude && procoreProject.longitude) {
+            // Sync coordinates from Procore only when: (1) deal coords are not from KMZ, (2) Procore start date is 30+ days in past (Procore sync starts then)
+            const coordSource = (bestMatch.CoordinateSource || bestMatch.coordinateSource || '').trim();
+            const coordsFromKmz = coordSource.toLowerCase() === 'kmz';
+            const procoreStartDateOk = procoreProject.actualstartdate && isProcoreStartDateOverride(procoreProject.actualstartdate);
+            if (dealPipelineId && !coordsFromKmz && procoreStartDateOk && procoreProject.latitude && procoreProject.longitude) {
                 const lat = parseFloat(procoreProject.latitude);
                 const lng = parseFloat(procoreProject.longitude);
                 if (!isNaN(lat) && !isNaN(lng)) {
                     const currentLat = bestMatch.Latitude ? parseFloat(bestMatch.Latitude) : null;
                     const currentLng = bestMatch.Longitude ? parseFloat(bestMatch.Longitude) : null;
-                    // Only update if coordinates are different (with small tolerance for floating point)
                     const latDiff = currentLat !== null ? Math.abs(currentLat - lat) : 1;
                     const lngDiff = currentLng !== null ? Math.abs(currentLng - lng) : 1;
                     if (latDiff > 0.0001 || lngDiff > 0.0001) {
@@ -688,11 +690,14 @@ let currentFilters = {
 };
 let currentSort = { by: 'date', order: 'asc' }; // Default to ascending (oldest first)
 let blockSort = { by: 'date', order: 'asc' }; // Sort within blocks (year/quarter groups)
-let listViewMode = 'timeline'; // 'timeline' or 'stage' - timeline shows by quarter/year, stage shows by stage
+let listViewMode = 'timeline'; // 'timeline' | 'stage' | 'product' | 'bank' - list view grouping
 window.productTypeSort = window.productTypeSort || { by: 'name', order: 'asc' }; // Sort config for product type view
 window.bankSort = window.bankSort || { by: 'name', order: 'asc' }; // Sort config for bank view
 window.listViewSort = window.listViewSort || { by: 'name', order: 'asc' }; // Sort config for list view (stage groups)
 window.dealFilesTableSort = window.dealFilesTableSort || { by: 'name', order: 'asc' }; // Sort config for Deal Files table
+// Land Development Contacts state
+window.landDevelopmentContacts = [];
+window.landDevelopmentContactFilters = { type: '', city: '', state: '', q: '', upcomingOnly: false };
 let mapInstance = null;
 let mapMarkers = []; // Store markers with deal data
 let visibleDealsForMap = []; // Deals currently visible on map
@@ -1137,12 +1142,16 @@ function mapDealPipelineDataToDeal(dbDeal, loansMap = {}, banksMap = {}) {
         unitCount = procoreMatch.unitCount;
     }
     
-    // Coordinates: Procore overrides database
-    let latitude = dbDeal.Latitude || null;
-    let longitude = dbDeal.Longitude || null;
-    if (hasProcore) {
-        if (procoreMatch.latitude) latitude = procoreMatch.latitude;
-        if (procoreMatch.longitude) longitude = procoreMatch.longitude;
+    // Coordinates: priority KMZ > Manual (db) > Procore. If from KMZ, never use Procore. Procore only syncs 30+ days after start date.
+    const coordSource = (dbDeal.CoordinateSource || dbDeal.coordinateSource || '').trim();
+    const fromKmz = coordSource.toLowerCase() === 'kmz';
+    let latitude = dbDeal.Latitude != null ? parseFloat(dbDeal.Latitude) : null;
+    let longitude = dbDeal.Longitude != null ? parseFloat(dbDeal.Longitude) : null;
+    if (isNaN(latitude)) latitude = null;
+    if (isNaN(longitude)) longitude = null;
+    if (!fromKmz && (latitude === null || longitude === null) && hasProcore && procoreMatch.actualStartDate && isProcoreStartDateOverride(procoreMatch.actualStartDate)) {
+        if (procoreMatch.latitude != null) latitude = parseFloat(procoreMatch.latitude);
+        if (procoreMatch.longitude != null) longitude = parseFloat(procoreMatch.longitude);
     }
     
     return {
@@ -1369,14 +1378,14 @@ function mapAsanaDataToDeal(asanaItem) {
         productType = asanaItem['Product Type Custom'];
     }
     
-    // Get Procore coordinates if available
+    // Procore coordinates only when start date is 30+ days in the past (Procore sync starts then)
     let latitude = null;
     let longitude = null;
-    if (dealName && procoreProjectMap[dealName]) {
+    const procoreStartDateOk = startDate && isProcoreStartDateOverride(startDate);
+    if (procoreStartDateOk && dealName && procoreProjectMap[dealName]) {
         latitude = procoreProjectMap[dealName].latitude;
         longitude = procoreProjectMap[dealName].longitude;
-    } else if (dealName) {
-        // Try fuzzy match for coordinates too
+    } else if (procoreStartDateOk && dealName) {
         const dealNameLower = dealName.toLowerCase().trim();
         for (const [procoreName, procoreData] of Object.entries(procoreProjectMap)) {
             const procoreNameLower = procoreName.toLowerCase().trim();
@@ -1868,7 +1877,7 @@ function groupDealsByYear(deals) {
 }
 
 // Render the deal list - switches between timeline-style and stage-based views
-function renderDealList(deals) {
+async function renderDealList(deals) {
     const container = document.getElementById('deal-list-container');
     
     if (!deals || deals.length === 0) {
@@ -1894,8 +1903,13 @@ function renderDealList(deals) {
     
     if (listViewMode === 'timeline') {
         renderDealListByTimeline(deals);
-    } else {
+    } else if (listViewMode === 'stage') {
         renderDealListByStage(deals);
+    } else if (listViewMode === 'product') {
+        container.innerHTML = renderByProductType(deals);
+    } else if (listViewMode === 'bank') {
+        const html = await renderByBank(deals);
+        container.innerHTML = html;
     }
     
     // Add click handlers for drill-down
@@ -2187,15 +2201,21 @@ function setupDrillDownHandlers() {
     // Deal row clicks (list view) - show deal detail
     document.querySelectorAll('.deal-row[data-deal-name]').forEach(row => {
         row.addEventListener('click', function(e) {
-            // Don't trigger if clicking on a badge, notes cell, or other interactive element
             if (e.target.closest('.stage-badge.clickable, .location-badge.clickable, .precon-badge, .notes-cell.clickable, .clickable')) {
                 return;
             }
             const dealName = this.dataset.dealName;
             const deal = allDeals.find(d => (d.Name || d.name) === dealName);
-            if (deal) {
-                showDealDetail(deal);
-            }
+            if (deal) showDealDetail(deal);
+        });
+    });
+    
+    // Upcoming dates row clicks – open deal detail
+    document.querySelectorAll('.upcoming-date-row[data-deal-name]').forEach(row => {
+        row.addEventListener('click', function() {
+            const dealName = this.dataset.dealName;
+            const deal = (typeof allDeals !== 'undefined' ? allDeals : []).find(d => (d.Name || d.name) === dealName);
+            if (deal) showDealDetail(deal);
         });
     });
     
@@ -2307,7 +2327,7 @@ function setupDrillDownHandlers() {
     document.body.addEventListener('click', function(e) {
         if (e.target.classList.contains('toggle-btn') && e.target.closest('#list-view-toggle')) {
             const mode = e.target.dataset.mode;
-            if (mode && (mode === 'timeline' || mode === 'stage')) {
+            if (mode && (mode === 'timeline' || mode === 'stage' || mode === 'product' || mode === 'bank')) {
                 listViewMode = mode;
                 // Update active state
                 const toggle = document.getElementById('list-view-toggle');
@@ -2672,6 +2692,53 @@ function renderOverview(deals) {
                         ${summary.upcomingDates.length === 0 ? '<div class="no-data">No upcoming dates</div>' : ''}
                     </div>
                 </div>
+            </div>
+        </div>
+    `;
+}
+
+// Upcoming Dates view – land development: deal start dates and key dates in one list
+function renderUpcomingDatesView(deals) {
+    const filtered = applyFilters(deals, true);
+    const summary = calculateSummary(filtered, true);
+    const upcoming = (summary.upcomingDates || []).slice().sort((a, b) => a.date - b.date);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return `
+        ${renderActiveFilters()}
+        <div class="upcoming-dates-view">
+            <h2 class="upcoming-dates-view-title">Upcoming Dates</h2>
+            <p class="upcoming-dates-view-desc">Land development deal start dates and key dates. Click a row to open the deal.</p>
+            <div class="upcoming-dates-list" id="upcoming-dates-list">
+                ${upcoming.length === 0 ? '<p class="no-data">No upcoming dates in the filtered set.</p>' : `
+                <table class="deal-list-table upcoming-dates-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Days away</th>
+                            <th>Deal</th>
+                            <th>Stage</th>
+                            <th>Location</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${upcoming.map(item => {
+                            const d = item.date instanceof Date ? item.date : new Date(item.date);
+                            const days = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+                            const daysText = days === 0 ? 'Today' : days === 1 ? '1 day' : days < 0 ? `${Math.abs(days)} days ago` : `${days} days`;
+                            const nameEsc = (item.name || 'Unnamed').replace(/"/g, '&quot;');
+                            const stageClass = (STAGE_CONFIG[item.stage] || STAGE_CONFIG['Prospective']).class;
+                            return `<tr class="upcoming-date-row clickable" data-deal-name="${nameEsc}" style="cursor: pointer;">
+                                <td>${formatDate(d)}</td>
+                                <td>${daysText}</td>
+                                <td class="deal-name">${(item.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+                                <td><span class="stage-badge ${stageClass}">${item.stage || '—'}</span></td>
+                                <td>${(item.location || '—').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+                `}
             </div>
         </div>
     `;
@@ -4124,6 +4191,321 @@ function renderDealFilesView(deals) {
     `;
 }
 
+// Land Development Contacts – linked to core.contacts; list shows individuals with optional land-dev attributes
+function getLandDevContactId(c) {
+    return c.ContactId != null ? c.ContactId : c.LandDevelopmentContactId;
+}
+function formatContactDate(dateStr) {
+    if (!dateStr) return '—';
+    try {
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString();
+    } catch (e) { return dateStr; }
+}
+function formatContactNextFollowUp(c) {
+    const next = c.NextFollowUpDate || (c.DateOfContact && c.FollowUpTimeframeDays != null ? (() => {
+        try {
+            const d = new Date(c.DateOfContact);
+            d.setDate(d.getDate() + parseInt(c.FollowUpTimeframeDays, 10));
+            return d.toISOString().slice(0, 10);
+        } catch (e) { return null; }
+    })() : null);
+    if (!next) return '—';
+    try {
+        const d = new Date(next);
+        return isNaN(d.getTime()) ? next : d.toLocaleDateString();
+    } catch (e) { return next; }
+}
+function isContactFollowUpUpcoming(c, withinDays = 14) {
+    const next = c.NextFollowUpDate || (c.DateOfContact && c.FollowUpTimeframeDays != null ? (() => {
+        try {
+            const d = new Date(c.DateOfContact);
+            d.setDate(d.getDate() + parseInt(c.FollowUpTimeframeDays, 10));
+            return d;
+        } catch (e) { return null; }
+    })() : null);
+    if (!next) return false;
+    const n = next instanceof Date ? next : new Date(next);
+    if (isNaN(n.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(today);
+    end.setDate(end.getDate() + withinDays);
+    return n >= today && n <= end;
+}
+
+function renderContactsView(contacts) {
+    const f = window.landDevelopmentContactFilters || {};
+    const types = ['Land Owner', 'Developer', 'Broker'];
+    const upcoming = (contacts || []).filter(c => c.UpcomingFollowUp === true || isContactFollowUpUpcoming(c));
+    return `
+        <div class="contacts-view">
+            <h2 class="contacts-view-title">Land Development Contacts</h2>
+            <p class="contacts-view-desc">Individuals only (people)—not entities. Pull up contacts and details like a contact book; track follow-up dates and send reminder emails.</p>
+            ${upcoming.length > 0 ? `
+            <div class="contacts-upcoming-alert" role="alert">
+                <h3 class="contacts-upcoming-heading">Follow-ups due soon (${upcoming.length})</h3>
+                <ul class="contacts-upcoming-list">
+                    ${upcoming.map(c => {
+                        const name = (c.Name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        const nextStr = formatContactNextFollowUp(c);
+                        const id = getLandDevContactId(c);
+                        const email = (c.Email || '').replace(/"/g, '&quot;');
+                        return `<li class="contacts-upcoming-item">
+                            <span class="contacts-upcoming-name">${name}</span>
+                            <span class="contacts-upcoming-next">${nextStr}</span>
+                            <button type="button" class="contacts-btn contacts-send-reminder-btn" data-contact-id="${id}" data-contact-name="${name}" data-contact-email="${email}" title="Send reminder email">Send reminder</button>
+                        </li>`;
+                    }).join('')}
+                </ul>
+            </div>
+            ` : ''}
+            <div class="contacts-toolbar">
+                <div class="contacts-filters">
+                    <select id="contacts-filter-type" class="contacts-filter-select" aria-label="Filter by type">
+                        <option value="">All types</option>
+                        ${types.map(t => `<option value="${t.replace(/"/g, '&quot;')}" ${f.type === t ? 'selected' : ''}>${t}</option>`).join('')}
+                    </select>
+                    <input type="text" id="contacts-filter-city" class="contacts-filter-input" placeholder="City" value="${(f.city || '').replace(/"/g, '&quot;')}" aria-label="Filter by city" />
+                    <input type="text" id="contacts-filter-state" class="contacts-filter-input" placeholder="State" value="${(f.state || '').replace(/"/g, '&quot;')}" maxlength="2" aria-label="Filter by state" style="width: 4em;" />
+                    <input type="text" id="contacts-filter-q" class="contacts-filter-input" placeholder="Search name, email, notes…" value="${(f.q || '').replace(/"/g, '&quot;')}" aria-label="Search contacts" />
+                    <label class="contacts-filter-checkbox-label"><input type="checkbox" id="contacts-filter-upcoming" ${f.upcomingOnly ? 'checked' : ''} /> Upcoming only</label>
+                </div>
+                <button type="button" class="contacts-add-btn" id="contacts-add-btn">Add contact</button>
+            </div>
+            <div class="contacts-list" id="contacts-list">
+                ${!(contacts && contacts.length) ? '<p class="contacts-empty">No contacts yet. Add a contact or adjust filters.</p>' : contacts.map(c => {
+                    const name = (c.Name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const type = (c.Type || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const city = (c.City || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const state = (c.State || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const dateContact = formatContactDate(c.DateOfContact);
+                    const nextFollow = formatContactNextFollowUp(c);
+                    const id = getLandDevContactId(c);
+                    const upcomingBadge = (c.UpcomingFollowUp === true || isContactFollowUpUpcoming(c)) ? '<span class="contacts-badge-upcoming">Due soon</span>' : '';
+                    const email = (c.Email || '').replace(/"/g, '&quot;');
+                    return `
+                <div class="contacts-card" data-contact-id="${id}">
+                    <div class="contacts-card-main">
+                        <div class="contacts-card-header">
+                            <span class="contacts-card-name">${name}</span>
+                            ${upcomingBadge}
+                        </div>
+                        <div class="contacts-card-meta">${type ? `<span class="contacts-card-type">${type}</span>` : ''} ${city || state ? `<span>${[city, state].filter(Boolean).join(', ')}</span>` : ''}</div>
+                        <div class="contacts-card-dates">Contact: ${dateContact} · Follow-up: ${nextFollow}</div>
+                    </div>
+                    <div class="contacts-card-actions">
+                        <button type="button" class="contacts-btn contacts-view-btn" data-contact-id="${id}" title="View / Edit">Edit</button>
+                        <button type="button" class="contacts-btn contacts-send-reminder-btn" data-contact-id="${id}" data-contact-name="${name}" data-contact-email="${email}" title="Send reminder">Remind</button>
+                        <button type="button" class="contacts-btn contacts-delete-btn" data-contact-id="${id}" data-contact-name="${name}" title="Delete">Delete</button>
+                    </div>
+                </div>`;
+                }).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function debounce(fn, ms) {
+    let t;
+    return function(...args) {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(this, args), ms);
+    };
+}
+function setupContactsViewHandlers(container) {
+    if (!container) return;
+    const applyFiltersAndRefresh = () => {
+        window.landDevelopmentContactFilters = {
+            type: (container.querySelector('#contacts-filter-type') || {}).value || '',
+            city: (container.querySelector('#contacts-filter-city') || {}).value || '',
+            state: (container.querySelector('#contacts-filter-state') || {}).value || '',
+            q: (container.querySelector('#contacts-filter-q') || {}).value || '',
+            upcomingOnly: (container.querySelector('#contacts-filter-upcoming') || {}).checked || false
+        };
+        switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
+    };
+    container.querySelector('#contacts-filter-type')?.addEventListener('change', applyFiltersAndRefresh);
+    container.querySelector('#contacts-filter-city')?.addEventListener('input', debounce(applyFiltersAndRefresh, 400));
+    container.querySelector('#contacts-filter-state')?.addEventListener('input', debounce(applyFiltersAndRefresh, 400));
+    container.querySelector('#contacts-filter-q')?.addEventListener('input', debounce(applyFiltersAndRefresh, 400));
+    container.querySelector('#contacts-filter-upcoming')?.addEventListener('change', applyFiltersAndRefresh);
+    container.querySelector('#contacts-add-btn')?.addEventListener('click', () => showContactModal(null));
+    container.querySelectorAll('.contacts-view-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const id = parseInt(this.dataset.contactId, 10);
+            const c = (window.landDevelopmentContacts || []).find(x => getLandDevContactId(x) === id);
+            if (c) showContactModal(c);
+        });
+    });
+    container.querySelectorAll('.contacts-send-reminder-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const id = this.dataset.contactId ? parseInt(this.dataset.contactId, 10) : null;
+            const name = this.dataset.contactName || '';
+            const email = this.dataset.contactEmail || '';
+            const c = id ? (window.landDevelopmentContacts || []).find(x => getLandDevContactId(x) === id) : null;
+            showSendReminderModal(c || { Name: name, Email: email }, !c ? email : null);
+        });
+    });
+    container.querySelectorAll('.contacts-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const id = parseInt(this.dataset.contactId, 10);
+            const name = (this.dataset.contactName || 'this contact').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+            try {
+                await (typeof API !== 'undefined' && API.deleteLandDevelopmentContact ? API.deleteLandDevelopmentContact(id) : Promise.reject(new Error('Contacts API not loaded. Ensure api-client is loaded and includes deleteLandDevelopmentContact.')));
+                switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
+            } catch (e) {
+                alert(e.message || 'Delete failed.');
+            }
+        });
+    });
+}
+
+function showContactModal(contact) {
+    const isEdit = !!contact;
+    const id = contact ? getLandDevContactId(contact) : null;
+    const types = ['Land Owner', 'Developer', 'Broker'];
+    const modal = document.createElement('div');
+    modal.className = 'deal-detail-overlay contacts-modal-overlay';
+    modal.id = 'contact-edit-modal';
+    modal.innerHTML = `
+        <div class="contacts-modal" role="dialog" aria-labelledby="contact-modal-title">
+            <h3 id="contact-modal-title">${isEdit ? 'Edit contact' : 'Add contact'}</h3>
+            <form id="contact-edit-form" class="contacts-form">
+                <label>Name <span class="required">*</span></label>
+                <input type="text" id="contact-field-name" required value="${(contact?.Name || '').replace(/"/g, '&quot;')}" />
+                <label>Email</label>
+                <input type="email" id="contact-field-email" value="${(contact?.Email || '').replace(/"/g, '&quot;')}" />
+                <label>Phone</label>
+                <input type="tel" id="contact-field-phone" value="${(contact?.PhoneNumber || '').replace(/"/g, '&quot;')}" />
+                <label>Office address</label>
+                <input type="text" id="contact-field-office" value="${(contact?.OfficeAddress || '').replace(/"/g, '&quot;')}" />
+                <label>Type</label>
+                <select id="contact-field-type">
+                    <option value="">—</option>
+                    ${types.map(t => `<option value="${t.replace(/"/g, '&quot;')}" ${(contact?.Type || '') === t ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+                <label>City</label>
+                <input type="text" id="contact-field-city" value="${(contact?.City || '').replace(/"/g, '&quot;')}" />
+                <label>State</label>
+                <input type="text" id="contact-field-state" value="${(contact?.State || '').replace(/"/g, '&quot;')}" maxlength="2" placeholder="e.g. LA" />
+                <label>Date of contact</label>
+                <input type="date" id="contact-field-date" value="${contact?.DateOfContact ? String(contact.DateOfContact).slice(0, 10) : ''}" />
+                <label>Follow-up timeframe (days)</label>
+                <input type="number" id="contact-field-followup-days" min="0" placeholder="e.g. 180" value="${contact?.FollowUpTimeframeDays != null ? contact.FollowUpTimeframeDays : ''}" />
+                <label>Notes</label>
+                <textarea id="contact-field-notes" rows="3">${(contact?.Notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+                <div class="contacts-form-actions">
+                    <button type="submit" class="contacts-btn contacts-save-btn">${isEdit ? 'Save' : 'Add'}</button>
+                    <button type="button" class="contacts-btn contacts-cancel-btn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => { modal.remove(); };
+    modal.querySelector('.contacts-cancel-btn').addEventListener('click', close);
+    modal.querySelector('.contacts-modal').addEventListener('click', e => e.stopPropagation());
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    modal.querySelector('#contact-edit-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = (document.getElementById('contact-field-name')?.value || '').trim();
+        if (!name) { alert('Name is required.'); return; }
+        const data = {
+            Name: name,
+            Email: (document.getElementById('contact-field-email')?.value || '').trim() || undefined,
+            PhoneNumber: (document.getElementById('contact-field-phone')?.value || '').trim() || undefined,
+            OfficeAddress: (document.getElementById('contact-field-office')?.value || '').trim() || undefined,
+            Type: (document.getElementById('contact-field-type')?.value || '').trim() || undefined,
+            City: (document.getElementById('contact-field-city')?.value || '').trim() || undefined,
+            State: (document.getElementById('contact-field-state')?.value || '').trim().toUpperCase().slice(0, 2) || undefined,
+            DateOfContact: (document.getElementById('contact-field-date')?.value || '').trim() || undefined,
+            FollowUpTimeframeDays: (() => { const v = document.getElementById('contact-field-followup-days')?.value; if (v === '' || v == null) return undefined; const n = parseInt(v, 10); return isNaN(n) ? undefined : n; })(),
+            Notes: (document.getElementById('contact-field-notes')?.value || '').trim() || undefined
+        };
+        Object.keys(data).forEach(k => { if (data[k] === undefined) delete data[k]; });
+        try {
+            if (isEdit && id != null) {
+                await (typeof API !== 'undefined' && API.updateLandDevelopmentContact ? API.updateLandDevelopmentContact(id, data) : Promise.reject(new Error('Contacts API not loaded. Ensure api-client is loaded and includes updateLandDevelopmentContact.')));
+            } else {
+                await (typeof API !== 'undefined' && API.createLandDevelopmentContact ? API.createLandDevelopmentContact(data) : Promise.reject(new Error('Contacts API not loaded. Ensure api-client is loaded and includes createLandDevelopmentContact.')));
+            }
+            close();
+            switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
+        } catch (err) {
+            alert(err.message || 'Save failed.');
+        }
+    });
+    document.addEventListener('keydown', function escapeContactModal(e) {
+        if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escapeContactModal); }
+    });
+}
+
+function showSendReminderModal(contactOrContext, emailPrefill) {
+    const email = emailPrefill != null ? emailPrefill : (contactOrContext?.Email || '');
+    const name = contactOrContext?.Name || '';
+    const contactId = contactOrContext ? getLandDevContactId(contactOrContext) : null;
+    const modal = document.createElement('div');
+    modal.className = 'deal-detail-overlay contacts-modal-overlay';
+    modal.id = 'send-reminder-modal';
+    modal.innerHTML = `
+        <div class="contacts-modal" role="dialog" aria-labelledby="reminder-modal-title">
+            <h3 id="reminder-modal-title">Send follow-up reminder</h3>
+            <p class="contacts-reminder-desc">Send an email reminder to follow up. Choose a contact or enter an email address.</p>
+            <form id="send-reminder-form" class="contacts-form">
+                <label>Contact (optional)</label>
+                <select id="reminder-contact-select">
+                    <option value="">— Or enter email below —</option>
+                    ${(window.landDevelopmentContacts || []).map(c => `
+                        <option value="${getLandDevContactId(c)}" data-email="${(c.Email || '').replace(/"/g, '&quot;')}" data-name="${(c.Name || '').replace(/"/g, '&quot;')}" ${contactId === getLandDevContactId(c) ? 'selected' : ''}>${(c.Name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</option>
+                    `).join('')}
+                </select>
+                <label>Or email address</label>
+                <input type="email" id="reminder-email" placeholder="someone@example.com" value="${(email || '').replace(/"/g, '&quot;')}" />
+                <label>Message (optional)</label>
+                <textarea id="reminder-message" rows="3" placeholder="e.g. Reminder to follow up on the land discussion."></textarea>
+                <div class="contacts-form-actions">
+                    <button type="submit" class="contacts-btn contacts-save-btn">Send reminder</button>
+                    <button type="button" class="contacts-btn contacts-cancel-btn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    const close = () => { modal.remove(); };
+    const selectEl = modal.querySelector('#reminder-contact-select');
+    const emailEl = modal.querySelector('#reminder-email');
+    selectEl?.addEventListener('change', function() {
+        const opt = this.selectedOptions && this.selectedOptions[0];
+        if (opt && opt.value) emailEl.value = (opt.dataset.email || '').trim();
+    });
+    modal.querySelector('.contacts-cancel-btn').addEventListener('click', close);
+    modal.querySelector('.contacts-modal').addEventListener('click', e => e.stopPropagation());
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    modal.querySelector('#send-reminder-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const selectedId = selectEl?.value ? parseInt(selectEl.value, 10) : null;
+        const emailVal = (emailEl?.value || '').trim();
+        if (!selectedId && !emailVal) { alert('Select a contact or enter an email address.'); return; }
+        const payload = {};
+        if (selectedId) payload.contactId = selectedId;
+        if (emailVal) payload.email = emailVal;
+        const msg = (modal.querySelector('#reminder-message')?.value || '').trim();
+        if (msg) payload.message = msg;
+        try {
+            await (typeof API !== 'undefined' && API.sendLandDevelopmentContactReminder ? API.sendLandDevelopmentContactReminder(payload) : Promise.reject(new Error('Contacts API not loaded. Ensure api-client is loaded and includes sendLandDevelopmentContactReminder.')));
+            close();
+            alert('Reminder sent.');
+        } catch (err) {
+            alert(err.message || 'Failed to send reminder.');
+        }
+    });
+    document.addEventListener('keydown', function escapeReminderModal(e) {
+        if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escapeReminderModal); }
+    });
+}
+
 // Render Timeline (board-style with year/quarter columns)
 // Timeline is the only view that includes START deals (they're placeholders for timeline)
 function renderTimeline(deals) {
@@ -4807,6 +5189,35 @@ function showDealDetail(deal) {
         return false;
     }
     
+    // Extract first coordinates from KML or KMZ file. KML order is longitude,latitude[,altitude]. Returns { latitude, longitude } or null.
+    async function extractCoordinatesFromKmlOrKmz(file) {
+        if (!file) return null;
+        const name = (file.name || '').toLowerCase();
+        let kmlText = null;
+        if (name.endsWith('.kml')) {
+            kmlText = await file.text();
+        } else if (name.endsWith('.kmz') && typeof JSZip !== 'undefined') {
+            const zip = await JSZip.loadAsync(file);
+            const kmlEntry = Object.keys(zip.files).find(f => f.toLowerCase().endsWith('.kml'));
+            if (!kmlEntry) return null;
+            kmlText = await zip.files[kmlEntry].async('string');
+        } else {
+            return null;
+        }
+        if (!kmlText || !kmlText.trim()) return null;
+        const coordMatch = kmlText.match(/<coordinates[^>]*>([^<]+)<\/coordinates>/i);
+        if (!coordMatch) return null;
+        const tokens = coordMatch[1].trim().split(/[\s,]+/).filter(Boolean);
+        for (let i = 0; i + 1 < tokens.length; i++) {
+            const lon = parseFloat(tokens[i]);
+            const lat = parseFloat(tokens[i + 1]);
+            if (!isNaN(lon) && !isNaN(lat) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                return { latitude: lat, longitude: lon };
+            }
+        }
+        return null;
+    }
+    
     async function renderDealPopupFiles() {
         if (!dealPipelineId || !filesListEl) return;
         try {
@@ -5062,9 +5473,44 @@ function showDealDetail(deal) {
             const files = fileInput.files;
             if (!files || files.length === 0) return;
             let anyFailed = false;
+            let kmzCoordsUpdated = false;
             for (let i = 0; i < files.length; i++) {
+                const file = files[i];
                 try {
-                    await API.uploadDealPipelineAttachment(dealPipelineId, files[i]);
+                    await API.uploadDealPipelineAttachment(dealPipelineId, file);
+                    const name = (file.name || '').toLowerCase();
+                    if (name.endsWith('.kmz') || name.endsWith('.kml')) {
+                        try {
+                            const coords = await extractCoordinatesFromKmlOrKmz(file);
+                            if (coords != null) {
+                                await API.updateDealPipeline(dealPipelineId, {
+                                    Latitude: coords.latitude,
+                                    Longitude: coords.longitude,
+                                    CoordinateSource: 'KMZ'
+                                });
+                                kmzCoordsUpdated = true;
+                                const dealInList = (typeof allDeals !== 'undefined' ? allDeals : []).find(d => (d.DealPipelineId || d._original?.DealPipelineId) == dealPipelineId);
+                                if (dealInList) {
+                                    dealInList.Latitude = dealInList.latitude = coords.latitude;
+                                    dealInList.Longitude = dealInList.longitude = coords.longitude;
+                                    dealInList.CoordinateSource = dealInList.coordinateSource = 'KMZ';
+                                    const orig = dealInList._original || deal._original;
+                                    if (orig) {
+                                        orig.Latitude = coords.latitude;
+                                        orig.Longitude = coords.longitude;
+                                        orig.CoordinateSource = 'KMZ';
+                                    }
+                                }
+                                if (deal) {
+                                    deal.Latitude = deal.latitude = coords.latitude;
+                                    deal.Longitude = deal.longitude = coords.longitude;
+                                    deal.CoordinateSource = deal.coordinateSource = 'KMZ';
+                                }
+                            }
+                        } catch (parseErr) {
+                            console.warn('KMZ/KML coordinate extraction failed:', parseErr);
+                        }
+                    }
                 } catch (e) {
                     anyFailed = true;
                     const msg = e.message || 'Upload failed.';
@@ -5072,7 +5518,10 @@ function showDealDetail(deal) {
                 }
             }
             fileInput.value = '';
-            if (!anyFailed && files.length > 0) renderDealPopupFiles();
+            if (!anyFailed && files.length > 0) {
+                renderDealPopupFiles();
+                if (kmzCoordsUpdated) showFilesMessage('File uploaded. Coordinates updated from KMZ/KML.', false);
+            }
         });
         const versionInput = modal.querySelector('#deal-detail-file-version-input');
         if (versionInput) {
@@ -5195,8 +5644,8 @@ async function switchView(view, deals) {
         }
     });
     
-    // Show/hide filter and sort controls
-    if (view === 'list' || view === 'location' || view === 'bank' || view === 'product' || view === 'files') {
+    // Show/hide filter and sort controls (contacts has its own inline filters)
+    if (view === 'list' || view === 'location' || view === 'files' || view === 'upcoming-dates') {
         if (filterControls) filterControls.style.display = 'flex';
         if (sortControls) sortControls.style.display = 'flex';
         // Update filter UI when showing controls
@@ -5223,7 +5672,7 @@ async function switchView(view, deals) {
             setupDrillDownHandlers();
             break;
         case 'list':
-            renderDealList(deals);
+            await renderDealList(deals);
             break;
         case 'location':
             container.innerHTML = renderByLocation(deals);
@@ -5236,12 +5685,8 @@ async function switchView(view, deals) {
                 if (mapInstance) mapInstance.invalidateSize();
             }, 350);
             break;
-        case 'bank':
-            container.innerHTML = await renderByBank(deals);
-            setupDrillDownHandlers();
-            break;
-        case 'product':
-            container.innerHTML = renderByProductType(deals);
+        case 'upcoming-dates':
+            container.innerHTML = renderUpcomingDatesView(deals);
             setupDrillDownHandlers();
             break;
         case 'files':
@@ -5266,6 +5711,27 @@ async function switchView(view, deals) {
                     }
                 });
             });
+            break;
+        case 'contacts':
+            container.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Loading contacts…</div>';
+            (async () => {
+                try {
+                    const f = window.landDevelopmentContactFilters || {};
+                    const params = {};
+                    if (f.type) params.type = f.type;
+                    if (f.city) params.city = f.city;
+                    if (f.state) params.state = f.state;
+                    if (f.q) params.q = f.q;
+                    if (f.upcomingOnly) params.upcomingOnly = true;
+                    const res = await (typeof API !== 'undefined' && API.getLandDevelopmentContacts ? API.getLandDevelopmentContacts(params) : { success: true, data: [] });
+                    const list = res.success && res.data ? res.data : [];
+                    window.landDevelopmentContacts = list;
+                    container.innerHTML = renderContactsView(list);
+                    setupContactsViewHandlers(container);
+                } catch (e) {
+                    container.innerHTML = `<div class="contacts-view"><p class="contacts-error">Could not load contacts: ${(e.message || e).toString()}. Check that the Land Development Contacts API is available.</p></div>`;
+                }
+            })();
             break;
         case 'timeline':
             // Don't filter by year - show all years, but auto-scroll to current year

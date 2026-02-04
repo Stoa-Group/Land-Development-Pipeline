@@ -91,6 +91,19 @@ Add (or ensure) the following columns on the **Deal Pipeline** table. All are op
 - **ListingStatus:** optional; use "Listed" | "Unlisted" if you want to constrain values.
 - **Zoning** and **County:** optional strings; already referenced in existing api-client JSDoc (Zoning, County).
 
+### Coordinate source (Latitude / Longitude priority)
+
+Coordinate priority is: **KMZ** (from uploaded .kmz/.kml) **> Manual** (entered in pipeline) **> Procore**. Procore coordinates are only used when the project’s start date is **30+ days in the past** (Procore sync starts then). If coordinates came from a KMZ attachment, the frontend never uses Procore for that deal.
+
+To support this, add an optional column:
+
+| API / DB field   | Type   | Required | Notes |
+|------------------|--------|----------|-------|
+| CoordinateSource | string | No       | `'KMZ'` when coords were set from an uploaded KMZ/KML file; `'Manual'` or `'Procore'` if you track it; null/empty otherwise. When `'KMZ'`, the frontend will not overwrite with Procore. |
+
+- **Latitude / Longitude:** already on the deal; when the frontend uploads a .kmz or .kml file it parses coordinates and sends `PUT` with `Latitude`, `Longitude`, and `CoordinateSource: 'KMZ'`.
+- **List/Get response:** include `CoordinateSource` (string or null) so the frontend can apply the priority rule.
+
 ---
 
 ## 4. Deal Pipeline API – Create / Update
@@ -117,6 +130,7 @@ When returning a deal (list or get by id), include the new fields so the UI can 
 - `ListingStatus` (string or null)
 - `Zoning` (string or null)
 - `County` (string or null)
+- `CoordinateSource` (string or null) – e.g. `'KMZ'`, `'Manual'`, `'Procore'`; used for coordinate priority (KMZ > Manual > Procore; Procore only 30+ days after start date).
 
 Optionally, include a nested or joined **Broker/Referral contact** object for convenience, e.g.:
 
