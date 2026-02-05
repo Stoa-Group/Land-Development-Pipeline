@@ -736,6 +736,31 @@
   return apiRequest(`/api/banking/loan-types/${id}`, 'DELETE');
 }
 
+/**
+ * Check that all Loan Creation Wizard methods are present on window.API.
+ * Call before opening the wizard; if ready is false, show a message to update api-client or backend.
+ * @returns {{ ready: boolean, missing: string[] }} ready true if all methods exist; missing lists absent method names
+ * @example
+ * const cap = API.checkLoanWizardReady();
+ * if (!cap.ready) {
+ *   console.warn('Loan wizard unavailable:', cap.missing);
+ *   return;
+ * }
+ */
+  function checkLoanWizardReady() {
+  const required = [
+    'getLoanTypes',
+    'createLoanType',
+    'copyLoanAttributes',
+    'setLoanActive',
+    'createLoan',
+    'getLoansByProject',
+    'updateLoan'
+  ];
+  const missing = required.filter(function (name) { return typeof API[name] !== 'function'; });
+  return { ready: missing.length === 0, missing: missing };
+}
+
 // LOAN MODIFICATIONS (permanent debt, extensions, restructures)
   async function getAllLoanModifications() {
   return apiRequest('/api/banking/loan-modifications');
@@ -2552,6 +2577,7 @@
   API.createLoanType = createLoanType;
   API.updateLoanType = updateLoanType;
   API.deleteLoanType = deleteLoanType;
+  API.checkLoanWizardReady = checkLoanWizardReady;
   API.getAllLoanModifications = getAllLoanModifications;
   API.getLoanModificationById = getLoanModificationById;
   API.getLoanModificationsByProject = getLoanModificationsByProject;
