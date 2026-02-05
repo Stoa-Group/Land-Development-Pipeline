@@ -1118,6 +1118,24 @@
   return apiRequest(`/api/banking/covenants/${covenantId}/send-reminder`, 'POST', payload);
 }
 
+/**
+ * Get upcoming dates reminder settings. GET /api/banking/settings/upcoming-dates-reminders
+ * BACKEND-GUIDE-UPCOMING-DATES-REMINDERS: global Key dates & covenants reminder config.
+ * @returns {Promise<object>} { success: true, data: { recipientEmails: string[], additionalEmails: string, daysBefore: number[] } }
+ */
+  async function getUpcomingDatesReminderSettings() {
+  return apiRequest('/api/banking/settings/upcoming-dates-reminders');
+}
+
+/**
+ * Save upcoming dates reminder settings. PUT /api/banking/settings/upcoming-dates-reminders (REQUIRES AUTHENTICATION)
+ * @param {object} settings - { recipientEmails: string[], additionalEmails?: string, daysBefore: number[] }
+ * @returns {Promise<object>} { success: true, data: settings }
+ */
+  async function saveUpcomingDatesReminderSettings(settings) {
+  return apiRequest('/api/banking/settings/upcoming-dates-reminders', 'PUT', settings);
+}
+
 // LIQUIDITY REQUIREMENTS
 /**
  * Get all liquidity requirements
@@ -2507,6 +2525,8 @@
   API.deleteCovenant = deleteCovenant;
   API.getBankingEmailTemplates = getBankingEmailTemplates;
   API.sendCovenantReminderNow = sendCovenantReminderNow;
+  API.getUpcomingDatesReminderSettings = getUpcomingDatesReminderSettings;
+  API.saveUpcomingDatesReminderSettings = saveUpcomingDatesReminderSettings;
   
   // Banking - Liquidity Requirements
   API.getAllLiquidityRequirements = getAllLiquidityRequirements;
