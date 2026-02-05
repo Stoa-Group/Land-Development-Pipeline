@@ -565,8 +565,10 @@
  * @param {string} [data.PermPhaseInterestRate] - Perm-phase interest rate
  * @param {string} [data.PermanentCloseDate] - Permanent close date (YYYY-MM-DD)
  * @param {number} [data.PermanentLoanAmount] - Permanent loan amount
+ * @param {number} [data.LoanTypeId] - FK to banking.LoanType (wizard: HUD, Conventional, etc.)
+ * @param {string} [data.LoanCategory] - 'Refinance' | 'Restructure' | 'Completely New'
  * @param {string} [data.Notes] - Notes
- * @returns {Promise<object>} { success: true, data: { LoanId, ... } }
+ * @returns {Promise<object>} { success: true, data: { LoanId, LoanTypeName, ... } }
  * @example
  * // First login and store token
  * await login('arovner@stoagroup.com', 'CapitalMarkets26');
@@ -619,10 +621,12 @@
  * @param {string} [data.PermPhaseInterestRate] - Perm-phase interest rate
  * @param {string} [data.PermanentCloseDate] - Permanent close date
  * @param {number} [data.PermanentLoanAmount] - Permanent loan amount
- * @param {boolean} [data.IsActive] - Loan is active
+ * @param {boolean} [data.IsActive] - Loan is active (if true, other loans on project set inactive)
  * @param {boolean} [data.IsPrimary] - Loan is primary for project
+ * @param {number} [data.LoanTypeId] - FK to banking.LoanType
+ * @param {string} [data.LoanCategory] - 'Refinance' | 'Restructure' | 'Completely New'
  * @param {string} [data.Notes] - Notes
- * @returns {Promise<object>} { success: true, data: { LoanId, ... } }
+ * @returns {Promise<object>} { success: true, data: { LoanId, LoanTypeName, ... } }
  * @example
  * await updateLoan(1, { 
  *   FixedOrFloating: 'Floating',
@@ -672,6 +676,64 @@
  */
   async function deleteLoan(id) {
   return apiRequest(`/api/banking/loans/${id}`, 'DELETE');
+}
+
+/**
+ * Copy covenants, guarantees, and/or equity commitments from one loan to another (Loan Creation Wizard).
+ * Target and source must be different and on the same project. REQUIRES AUTHENTICATION.
+ * @param {number} targetLoanId - New loan ID (destination)
+ * @param {number} sourceLoanId - Existing loan ID (source)
+ * @param {object} options - { copyCovenants: boolean, copyGuarantees: boolean, copyEquityCommitments: boolean }
+ * @returns {Promise<object>} { success: true, data: { copyCovenants: number, copyGuarantees: number, copyEquityCommitments: number } }
+ */
+  async function copyLoanAttributes(targetLoanId, sourceLoanId, options) {
+  return apiRequest(`/api/banking/loans/${targetLoanId}/copy-from/${sourceLoanId}`, 'POST', options || {});
+}
+
+/**
+ * Set a loan as active; other loans on the same project are set inactive. REQUIRES AUTHENTICATION.
+ * @param {number} loanId - Loan ID to set active
+ * @returns {Promise<object>} { success: true, data: loan }
+ */
+  async function setLoanActive(loanId) {
+  return apiRequest(`/api/banking/loans/${loanId}`, 'PUT', { IsActive: true });
+}
+
+// LOAN TYPES (Loan Creation Wizard – reference table)
+/**
+ * Get all active loan types (e.g. HUD, Conventional), optionally filtered by search.
+ * @param {string} [query] - Optional search string (e.g. "HUD") to filter by name
+ * @returns {Promise<object>} { success: true, data: [{ LoanTypeId, LoanTypeName, Notes, DisplayOrder }, ...] }
+ */
+  async function getLoanTypes(query) {
+  const qs = query != null && query !== '' ? `?q=${encodeURIComponent(query)}` : '';
+  return apiRequest(`/api/banking/loan-types${qs}`);
+}
+  async function getLoanTypeById(id) {
+  return apiRequest(`/api/banking/loan-types/${id}`);
+}
+/**
+ * Create a loan type (REQUIRES AUTHENTICATION)
+ * @param {object} payload - { LoanTypeName (required), Notes?, DisplayOrder? }
+ * @returns {Promise<object>} { success: true, data: { LoanTypeId, LoanTypeName, ... } }
+ */
+  async function createLoanType(payload) {
+  return apiRequest('/api/banking/loan-types', 'POST', payload);
+}
+/**
+ * Update a loan type (REQUIRES AUTHENTICATION)
+ * @param {number} id - LoanTypeId
+ * @param {object} payload - { LoanTypeName?, Notes?, DisplayOrder?, IsActive? }
+ */
+  async function updateLoanType(id, payload) {
+  return apiRequest(`/api/banking/loan-types/${id}`, 'PUT', payload);
+}
+/**
+ * Soft-delete a loan type (REQUIRES AUTHENTICATION). Sets IsActive = 0.
+ * @param {number} id - LoanTypeId
+ */
+  async function deleteLoanType(id) {
+  return apiRequest(`/api/banking/loan-types/${id}`, 'DELETE');
 }
 
 // LOAN MODIFICATIONS (permanent debt, extensions, restructures)
@@ -2482,6 +2544,14 @@
   API.updateLoan = updateLoan;
   API.updateLoanByProject = updateLoanByProject;
   API.deleteLoan = deleteLoan;
+  API.copyLoanAttributes = copyLoanAttributes;
+  API.setLoanActive = setLoanActive;
+  // Banking - Loan Types (Loan Creation Wizard)
+  API.getLoanTypes = getLoanTypes;
+  API.getLoanTypeById = getLoanTypeById;
+  API.createLoanType = createLoanType;
+  API.updateLoanType = updateLoanType;
+  API.deleteLoanType = deleteLoanType;
   API.getAllLoanModifications = getAllLoanModifications;
   API.getLoanModificationById = getLoanModificationById;
   API.getLoanModificationsByProject = getLoanModificationsByProject;
