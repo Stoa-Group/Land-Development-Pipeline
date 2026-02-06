@@ -666,7 +666,7 @@ const STAGE_CONFIG = {
     'Commercial Land Listed': { class: 'commercial-land-listed', color: '#14b8a6' }, // turquoise
     'Commercial Land - Listed': { class: 'commercial-land-listed', color: '#14b8a6' }, // turquoise
     'Rejected': { class: 'rejected', color: '#6b7280' }, // grey
-    'Dead': { class: 'dead', color: '#6b7280' }, // grey
+    'Dead': { class: 'dead', color: '#374151', borderColor: '#1f2937' }, // dark slate (distinct from Rejected)
     'Other': { class: 'other', color: '#78716c' },
     'START': { class: 'start', color: '#f97316' }
 };
@@ -826,6 +826,19 @@ function getCanonicalBankName(bank) {
     if (!bank || bank === 'Unknown') return 'Unknown';
     const normalized = normalizeBankName(bank);
     return bankNameMap[normalized] || bank.trim();
+}
+
+// Parse a date-only string (YYYY-MM-DD) as local date to avoid timezone shift (e.g. Asana due_on)
+function parseLocalDateOnly(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    const trimmed = dateStr.trim();
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return new Date(trimmed);
+    const y = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10) - 1;
+    const d = parseInt(match[3], 10);
+    const date = new Date(y, m, d);
+    return isNaN(date.getTime()) ? null : date;
 }
 
 // Format date for display - always include year
@@ -2448,6 +2461,7 @@ function calculateSummary(deals, excludeStart = true) {
                     const dateItem = {
                         name: deal.Name || deal.name,
                         date: date,
+                        dateType: 'Start date',
                         stage: stage,
                         location: getDealLocation(deal),
                         units: deal['Unit Count'] || deal.unitCount,
@@ -2690,63 +2704,172 @@ function renderOverview(deals) {
                             </div>
                         `).join('')}
                         ${summary.upcomingDates.length === 0 ? '<div class="no-data">No upcoming dates</div>' : ''}
-                    </div>
+                    </div>  
                 </div>
             </div>
         </div>
     `;
 }
 
-// Upcoming Dates view – land development: deal start dates and key dates in one list
+// Match Asana project name to deal name (for view-only Asana tasks in Upcoming Dates)
+function asanaProjectNameMatchesDeal(projectName, dealName) {
+    if (!projectName || !dealName) return false;
+    const n = (s) => String(s || '').toLowerCase().trim();
+    const p = n(projectName);
+    const d = n(dealName);
+    if (p === d) return true;
+    if (d.indexOf(p) !== -1 || p.indexOf(d) !== -1) return true;
+    return false;
+}
+
+// Upcoming Dates view – land development: deal start dates, key dates, and Asana tasks (view-only, matched by project name)
 function renderUpcomingDatesView(deals) {
     const filtered = applyFilters(deals, true);
     const summary = calculateSummary(filtered, true);
     const upcoming = (summary.upcomingDates || []).slice().sort((a, b) => a.date - b.date);
     const now = new Date();
     now.setHours(0, 0, 0, 0);
+    const rowsHtml = upcoming.map(item => {
+        const d = item.date instanceof Date ? item.date : new Date(item.date);
+        const days = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+        const daysText = days === 0 ? 'Today' : days === 1 ? 'In 1 day' : days < 0 ? `${Math.abs(days)} days ago` : `In ${days} days`;
+        const nameEsc = (item.name || 'Unnamed').replace(/"/g, '&quot;');
+        const stageClass = (STAGE_CONFIG[item.stage] || STAGE_CONFIG['Prospective']).class;
+        const dateType = item.dateType || 'Start date';
+        return `<tr class="upcoming-date-row clickable" data-source="deal" data-deal-name="${nameEsc}" style="cursor: pointer;">
+            <td class="upcoming-date-type">${dateType}</td>
+            <td>${formatDate(d)}</td>
+            <td>${daysText}</td>
+            <td class="deal-name">${(item.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+            <td><span class="stage-badge ${stageClass}">${item.stage || '—'}</span></td>
+            <td>${(item.location || '—').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
+        </tr>`;
+    }).join('');
+    const emptyRow = upcoming.length === 0 ? '<tr class="upcoming-date-row-empty"><td colspan="6" class="no-data">No upcoming deal dates in the filtered set.</td></tr>' : '';
     return `
         ${renderActiveFilters()}
         <div class="upcoming-dates-view">
             <h2 class="upcoming-dates-view-title">Upcoming Dates</h2>
-            <p class="upcoming-dates-view-desc">Land development deal start dates and key dates. Click a row to open the deal.</p>
+            <p class="upcoming-dates-view-desc">Internal deal start dates and key dates from the database. The &quot;Date Type&quot; column indicates the kind of date; &quot;Days from today&quot; shows how many days until each date. Click a row to open the deal; the detail view will flag any Asana start date discrepancy if the API is available.</p>
             <div class="upcoming-dates-list" id="upcoming-dates-list">
-                ${upcoming.length === 0 ? '<p class="no-data">No upcoming dates in the filtered set.</p>' : `
                 <table class="deal-list-table upcoming-dates-table">
                     <thead>
                         <tr>
+                            <th>Date Type</th>
                             <th>Date</th>
-                            <th>Days away</th>
+                            <th>Days from today</th>
                             <th>Deal</th>
                             <th>Stage</th>
                             <th>Location</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        ${upcoming.map(item => {
-                            const d = item.date instanceof Date ? item.date : new Date(item.date);
-                            const days = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
-                            const daysText = days === 0 ? 'Today' : days === 1 ? '1 day' : days < 0 ? `${Math.abs(days)} days ago` : `${days} days`;
-                            const nameEsc = (item.name || 'Unnamed').replace(/"/g, '&quot;');
-                            const stageClass = (STAGE_CONFIG[item.stage] || STAGE_CONFIG['Prospective']).class;
-                            return `<tr class="upcoming-date-row clickable" data-deal-name="${nameEsc}" style="cursor: pointer;">
-                                <td>${formatDate(d)}</td>
-                                <td>${daysText}</td>
-                                <td class="deal-name">${(item.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
-                                <td><span class="stage-badge ${stageClass}">${item.stage || '—'}</span></td>
-                                <td>${(item.location || '—').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td>
-                            </tr>`;
-                        }).join('')}
+                    <tbody id="upcoming-dates-tbody">
+                        ${rowsHtml || emptyRow}
                     </tbody>
                 </table>
-                `}
             </div>
         </div>
     `;
 }
 
+// Fetch Asana upcoming tasks and merge into Upcoming Dates table (view-only; match by project name to deal name)
+function loadUpcomingDatesAsanaAndMerge(container, deals) {
+    const tbody = container && container.querySelector('#upcoming-dates-tbody');
+    if (!tbody) return;
+    const filtered = applyFilters(deals || [], true);
+    const summary = calculateSummary(filtered, true);
+    const dealDates = (summary.upcomingDates || []).slice();
+    const dealNamesNormalized = new Set(filtered.map(d => (d.Name || d.name || '').toLowerCase().trim()));
+
+    const dealItems = dealDates.map(item => ({
+        ...item,
+        source: 'deal',
+        date: item.date instanceof Date ? item.date : new Date(item.date)
+    }));
+
+    if (typeof API === 'undefined' || !API.getAsanaUpcomingTasks) return;
+
+    API.getAsanaUpcomingTasks({ daysAhead: 90 }).then(function(res) {
+        if (!res || !res.success || !Array.isArray(res.data)) return;
+        const asanaItems = [];
+        res.data.forEach(function(project) {
+            const projectName = (project.projectName || project.name || '').trim();
+            (project.tasks || []).forEach(function(task) {
+                const dueOn = task.due_on;
+                if (!dueOn) return;
+                const taskName = (task.name || 'Task').trim();
+                const projectMatchesDeal = Array.from(dealNamesNormalized).some(function(dn) {
+                    return asanaProjectNameMatchesDeal(projectName, dn);
+                });
+                const taskMatchesDeal = Array.from(dealNamesNormalized).some(function(dn) {
+                    return asanaProjectNameMatchesDeal(taskName, dn);
+                });
+                if (!projectMatchesDeal && !taskMatchesDeal) return;
+                const date = parseLocalDateOnly(dueOn) || new Date(dueOn);
+                if (!date || isNaN(date.getTime())) return;
+                asanaItems.push({
+                    date: date,
+                    name: taskName,
+                    source: 'asana',
+                    taskName: taskName,
+                    taskGid: task.gid,
+                    permalink_url: task.permalink_url || ('https://app.asana.com/0/0/' + (task.gid || '')),
+                    location: '—',
+                    stage: '—'
+                });
+            });
+        });
+
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const combined = [...dealItems, ...asanaItems].sort(function(a, b) { return a.date - b.date; });
+
+        const defaultStageClass = (STAGE_CONFIG['Prospective'] || {}).class || 'prospective';
+        const emptyMsg = '<tr class="upcoming-date-row-empty"><td colspan="6" class="no-data">No upcoming deal dates or Asana tasks in the filtered set.</td></tr>';
+        const rowsHtml = combined.length === 0 ? emptyMsg : combined.map(function(item) {
+            const d = item.date;
+            const days = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+            const daysText = days === 0 ? 'Today' : days === 1 ? 'In 1 day' : days < 0 ? Math.abs(days) + ' days ago' : 'In ' + days + ' days';
+            if (item.source === 'asana') {
+                const taskNameEsc = (item.taskName || item.name || 'Task').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                const link = (item.permalink_url || '').replace(/"/g, '&quot;');
+                return '<tr class="upcoming-date-row upcoming-date-row-asana" data-source="asana">' +
+                    '<td>' + formatDate(d) + '</td>' +
+                    '<td>' + daysText + '</td>' +
+                    '<td class="deal-name">' + taskNameEsc + '</td>' +
+                    '<td>—</td>' +
+                    '<td>—</td>' +
+                    '<td class="upcoming-source"><a href="' + link + '" target="_blank" rel="noopener noreferrer" class="upcoming-open-asana">Open in Asana</a></td>' +
+                    '</tr>';
+            }
+            const nameEsc = (item.name || 'Unnamed').replace(/"/g, '&quot;');
+            return '<tr class="upcoming-date-row clickable" data-source="deal" data-deal-name="' + nameEsc + '" style="cursor: pointer;">' +
+                '<td>' + formatDate(d) + '</td>' +
+                '<td>' + daysText + '</td>' +
+                '<td class="deal-name">' + (item.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>' +
+                '<td><span class="stage-badge ' + defaultStageClass + '">' + (item.stage || '—') + '</span></td>' +
+                '<td>' + (item.location || '—').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>' +
+                '<td class="upcoming-source">Deal</td>' +
+                '</tr>';
+        }).join('');
+
+        tbody.innerHTML = rowsHtml || emptyMsg;
+
+        document.querySelectorAll('.upcoming-date-row[data-source="deal"][data-deal-name]').forEach(function(row) {
+            row.addEventListener('click', function() {
+                var dealName = (this.dataset.dealName || '').replace(/&quot;/g, '"');
+                var deal = (typeof allDeals !== 'undefined' ? allDeals : []).find(function(d) { return (d.Name || d.name) === dealName; });
+                if (deal && typeof showDealDetail === 'function') showDealDetail(deal);
+            });
+        });
+    }).catch(function() { /* Asana unavailable: keep deal-only rows */ });
+}
+
 // Geocode location (simple city, state parser)
 // Cache for geocoded locations to avoid repeated API calls
 const geocodeCache = {};
+// Session cache: reuse resolved coords when re-building map (e.g. filter toggles) for faster load
+let locationCoordsSessionCache = {};
 
 async function geocodeLocation(location) {
     if (!location || location === 'Unknown') return null;
@@ -2803,7 +2926,8 @@ async function geocodeLocation(location) {
         }
     }
     
-    // If not in hardcoded list, try OpenStreetMap Nominatim API
+    // If not in hardcoded list, try OpenStreetMap Nominatim API.
+    // In Domo: ensure Content-Security-Policy connect-src allows https://nominatim.openstreetmap.org
     try {
         const encodedLocation = encodeURIComponent(location);
         const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodedLocation}&limit=1`, {
@@ -2811,7 +2935,7 @@ async function geocodeLocation(location) {
                 'User-Agent': 'STOA Deal Pipeline Dashboard'
             }
         });
-        
+
         if (response.ok) {
             const data = await response.json();
             if (data && data.length > 0) {
@@ -2825,7 +2949,10 @@ async function geocodeLocation(location) {
             }
         }
     } catch (error) {
-        console.warn(`Geocoding failed for location: ${location}`, error);
+        if (!window._geocodeNetworkWarned) {
+            window._geocodeNetworkWarned = true;
+            console.warn('Geocoding unavailable (network/CSP). Add https://nominatim.openstreetmap.org to connect-src if needed. First failure:', location, error);
+        }
     }
     
     // Return null if all methods fail
@@ -2965,6 +3092,7 @@ function updateMapTable() {
     // Update the table container
     tableContainer.innerHTML = renderMapTable(uniqueDeals);
     setupDrillDownHandlers();
+    if (window.updateFullscreenDealsList) window.updateFullscreenDealsList();
 }
 
 // Render by Location with Map
@@ -3002,6 +3130,23 @@ function renderByLocation(deals) {
                     <div id="location-map" class="location-map-canvas"></div>
                     <div id="map-legend" class="map-legend" style="display: none;" aria-hidden="true"></div>
                     <button type="button" class="map-fullscreen-exit" id="map-fullscreen-exit-btn" aria-label="Exit full screen" style="display: none;">Exit full screen</button>
+                    <div class="map-fullscreen-overlay" id="map-fullscreen-overlay" aria-hidden="true">
+                        <div class="map-fullscreen-topbar">
+                            <button type="button" class="map-fullscreen-exit-city-btn map-btn map-btn-secondary" id="map-fullscreen-exit-city-btn" aria-label="Exit city view" style="display: none;">Exit City View</button>
+                            <div class="map-fullscreen-stage-filters" id="map-fullscreen-stage-filters"></div>
+                        </div>
+                        <div class="map-fullscreen-bottom-left" id="map-fullscreen-bottom-left">
+                            <button type="button" class="map-fullscreen-deals-btn" id="map-fullscreen-deals-btn" aria-label="Toggle deals list">Deals</button>
+                            <div class="map-fullscreen-legend-slot" id="map-fullscreen-legend-slot"></div>
+                        </div>
+                        <div class="map-fullscreen-deals-panel" id="map-fullscreen-deals-panel">
+                            <div class="map-fullscreen-deals-panel-header">
+                                <h3>Deals on map</h3>
+                                <button type="button" class="map-fullscreen-deals-close" id="map-fullscreen-deals-close" aria-label="Close">×</button>
+                            </div>
+                            <div class="map-fullscreen-deals-list" id="map-fullscreen-deals-list"></div>
+                        </div>
+                    </div>
                 </div>
                 <div id="map-table-container" class="map-table-container"></div>
             </div>
@@ -3011,45 +3156,54 @@ function renderByLocation(deals) {
     return mapHtml;
 }
 
+// Prevent overlapping initMap runs (avoids layering when toggling filters quickly)
+let mapInitInProgress = false;
+
 // Initialize map
 async function initMap(deals) {
-    if (mapInstance) {
-        mapInstance.remove();
-    }
-    
-    const mapDiv = document.getElementById('location-map');
-    if (!mapDiv) return;
-    
-    // Clear previous markers
-    mapMarkers = [];
-    allMapMarkers = []; // Reset all markers storage
-    isCityView = false; // Reset city view state
-    currentCityView = null;
-    
-    // Deals passed to initMap should already be filtered, but ensure they have locations
-    const allDealsForMap = deals.filter(deal => {
-        const location = getDealLocation(deal);
-        return location && location !== 'Unknown';
-    });
-    
-    // Restrict map to continental US only; default view centered on US
-    const DEFAULT_MAP_CENTER = [39.5, -98.5]; // Center of continental US
-    const DEFAULT_MAP_ZOOM = 4;
-    const US_BOUNDS = L.latLngBounds([[24, -125], [49, -66]]); // Continental US (SW to NE)
-    mapInstance = L.map('location-map', {
-        center: DEFAULT_MAP_CENTER,
-        zoom: DEFAULT_MAP_ZOOM,
-        maxBounds: US_BOUNDS,
-        maxBoundsViscosity: 1.0
-    });
-    
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-    }).addTo(mapInstance);
-    
-    // City view only when All Stages and no other filters; otherwise individual markers color-coded by stage
-    const useCityView = currentFilters.stages.length === 0 &&
-        !currentFilters.state && !currentFilters.bank && !currentFilters.product && !currentFilters.search;
+    if (mapInitInProgress) return;
+    mapInitInProgress = true;
+    try {
+        if (mapInstance) {
+            mapInstance.remove();
+            mapInstance = null;
+        }
+        
+        const mapDiv = document.getElementById('location-map');
+        if (!mapDiv) { mapInitInProgress = false; return; }
+        
+        // Clear previous markers so we never layer city dots + color markers
+        mapMarkers = [];
+        allMapMarkers = [];
+        isCityView = false;
+        currentCityView = null;
+        
+        // Deals passed to initMap should already be filtered, but ensure they have locations
+        const allDealsForMap = (deals || []).filter(deal => {
+            const location = getDealLocation(deal);
+            return location && location !== 'Unknown';
+        });
+        
+        // Restrict map to continental US only; default view centered on US
+        const DEFAULT_MAP_CENTER = [39.5, -98.5]; // Center of continental US
+        const DEFAULT_MAP_ZOOM = 4;
+        const US_BOUNDS = L.latLngBounds([[24, -125], [49, -66]]); // Continental US (SW to NE)
+        mapInstance = L.map('location-map', {
+            center: DEFAULT_MAP_CENTER,
+            zoom: DEFAULT_MAP_ZOOM,
+            maxBounds: US_BOUNDS,
+            maxBoundsViscosity: 1.0
+        });
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(mapInstance);
+        
+        // In full screen: always individual color-coded markers (no city view / city dots)
+        const mapCanvasContainer = document.getElementById('map-canvas-container');
+        const isFullscreen = mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen');
+        const useCityView = !isFullscreen && currentFilters.stages.length === 0 &&
+            !currentFilters.state && !currentFilters.bank && !currentFilters.product && !currentFilters.search;
     
     const legendEl = document.getElementById('map-legend');
     if (legendEl) {
@@ -3200,10 +3354,23 @@ async function initMap(deals) {
     }
     const locationToCoords = {};
     const locationsToGeocode = [...new Set(allDealsForMap.map(d => getDealLocation(d)).filter(Boolean))];
+    locationsToGeocode.forEach(function(loc) {
+        if (locationToCoords[loc]) return;
+        var fromDeal = getDealCoords(allDealsForMap.find(function(d) { return getDealLocation(d) === loc; }));
+        if (fromDeal) {
+            locationToCoords[loc] = fromDeal;
+            locationCoordsSessionCache[loc] = fromDeal;
+        } else if (locationCoordsSessionCache[loc]) {
+            locationToCoords[loc] = locationCoordsSessionCache[loc];
+        }
+    });
     await Promise.all(locationsToGeocode.map(async (loc) => {
         if (locationToCoords[loc]) return;
-        const c = getDealCoords(allDealsForMap.find(d => getDealLocation(d) === loc)) || await geocodeLocation(loc);
-        if (c) locationToCoords[loc] = c;
+        const c = await geocodeLocation(loc);
+        if (c) {
+            locationToCoords[loc] = c;
+            locationCoordsSessionCache[loc] = c;
+        }
     }));
     const locationIndex = {};
     const stagesInMap = new Set();
@@ -3259,7 +3426,22 @@ async function initMap(deals) {
     
     // Add event listeners for map movement
     mapInstance.on('moveend', updateMapTable);
-    mapInstance.on('zoomend', updateMapTable);
+    mapInstance.on('zoomend', function() {
+        updateMapTable();
+        var container = document.getElementById('map-canvas-container');
+        if (container && container.classList.contains('is-fullscreen') && mapMarkers.length) {
+            mapInstance.invalidateSize();
+            var c = mapInstance.getCenter();
+            var z = mapInstance.getZoom();
+            mapInstance.setView(c, z);
+            mapMarkers.forEach(function(m) {
+                if (m.marker && m.marker.getLatLng) {
+                    var ll = m.marker.getLatLng();
+                    if (ll) m.marker.setLatLng(ll);
+                }
+            });
+        }
+    });
     
     // Ensure table container exists and is visible
     const tableContainerCheck = document.getElementById('map-table-container');
@@ -3375,6 +3557,9 @@ async function initMap(deals) {
         }
         }
     }, 300);
+    } finally {
+        mapInitInProgress = false;
+    }
 }
 
 // Focus map on city from marker popup (uses marker data directly)
@@ -3553,6 +3738,11 @@ function focusMapOnCityFromMarker(cityName, location) {
     // Set city view flag
     isCityView = true;
     currentCityView = { cityName, location, deals: cityDeals };
+    var mapCanvasContainer = document.getElementById('map-canvas-container');
+    if (mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+        var fsExitCityBtn = document.getElementById('map-fullscreen-exit-city-btn');
+        if (fsExitCityBtn) fsExitCityBtn.style.display = '';
+    }
     
     // If we have coordinates, fit map to show properties
     if (coordinates.length > 0) {
@@ -3612,19 +3802,50 @@ function exitCityView() {
         }
     });
     
-    // Restore all city markers
+    // Restore all city markers (so map is not left blank when city had no lat/long)
     allMapMarkers.forEach(m => {
-        mapInstance.addLayer(m.marker);
+        if (m && m.marker) mapInstance.addLayer(m.marker);
     });
     
     // Restore mapMarkers to all city markers
     mapMarkers = [...allMapMarkers];
     
-    // Fit map to show all markers
+    // Fit map to show all markers, or default US view if none (e.g. city had no coords)
+    var defaultCenter = [39.5, -98.5];
+    var defaultZoom = 4;
     if (mapMarkers.length > 0) {
-        const group = new L.featureGroup(mapMarkers.map(m => m.marker));
-        mapInstance.fitBounds(group.getBounds().pad(0.1));
+        try {
+            var group = new L.featureGroup(mapMarkers.map(function(m) { return m.marker; }).filter(Boolean));
+            if (group.getLayers().length > 0) {
+                var bounds = group.getBounds();
+                var valid = bounds && (typeof bounds.isValid !== 'function' || bounds.isValid());
+                if (valid) {
+                    mapInstance.fitBounds(bounds.pad(0.1));
+                } else {
+                    var center = mapMarkers[0].coords || (mapMarkers[0].marker && mapMarkers[0].marker.getLatLng && mapMarkers[0].marker.getLatLng());
+                    if (center && (Array.isArray(center) || (center.lat != null && center.lng != null))) {
+                        var lat = Array.isArray(center) ? center[0] : center.lat;
+                        var lng = Array.isArray(center) ? center[1] : center.lng;
+                        mapInstance.setView([lat, lng], 6);
+                    } else {
+                        mapInstance.setView(defaultCenter, defaultZoom);
+                    }
+                }
+            } else {
+                mapInstance.setView(defaultCenter, defaultZoom);
+            }
+        } catch (err) {
+            if (mapMarkers[0] && (mapMarkers[0].coords || mapMarkers[0].marker)) {
+                var c = mapMarkers[0].coords || (mapMarkers[0].marker.getLatLng && mapMarkers[0].marker.getLatLng());
+                if (c) mapInstance.setView(Array.isArray(c) ? c : [c.lat, c.lng], 6);
+            } else {
+                mapInstance.setView(defaultCenter, defaultZoom);
+            }
+        }
+    } else {
+        mapInstance.setView(defaultCenter, defaultZoom);
     }
+    if (mapInstance.invalidateSize) mapInstance.invalidateSize();
     
     // Update table to show all filtered deals
     const allFilteredDeals = mapMarkers.reduce((acc, markerData) => {
@@ -3647,6 +3868,8 @@ function exitCityView() {
             controlsContainer.style.display = 'none';
         }
     }
+    var fsExitCityBtn = document.getElementById('map-fullscreen-exit-city-btn');
+    if (fsExitCityBtn) fsExitCityBtn.style.display = 'none';
 }
 
 // Bind location search, Fit All, and Map/List toggle for map view
@@ -3711,12 +3934,25 @@ function setupMapViewControls() {
         if (fullscreenExitBtn) fullscreenExitBtn.style.display = 'block';
         if (fullscreenBtn) fullscreenBtn.textContent = 'Exit full screen';
         document.body.classList.add('map-fullscreen-active');
+        var ov = document.getElementById('map-fullscreen-overlay');
+        if (ov) { ov.classList.add('visible'); ov.setAttribute('aria-hidden', 'false'); }
+        var legendEl = document.getElementById('map-legend');
+        var legendSlot = document.getElementById('map-fullscreen-legend-slot');
+        if (legendEl && legendSlot && legendEl.parentNode !== legendSlot) {
+            legendSlot.appendChild(legendEl);
+        }
         if (mapInstance) setTimeout(function() { mapInstance.invalidateSize(); }, 150);
         window.addEventListener('keydown', onFullscreenKeydown);
     }
 
     function exitMapFullscreen() {
         if (!mapCanvasContainer) return;
+        var ov = document.getElementById('map-fullscreen-overlay');
+        if (ov) { ov.classList.remove('visible'); ov.setAttribute('aria-hidden', 'true'); }
+        var legendEl = document.getElementById('map-legend');
+        if (legendEl && legendEl.parentNode && legendEl.parentNode.id === 'map-fullscreen-legend-slot') {
+            mapCanvasContainer.appendChild(legendEl);
+        }
         mapCanvasContainer.classList.remove('is-fullscreen');
         if (fullscreenExitBtn) fullscreenExitBtn.style.display = 'none';
         if (fullscreenBtn) fullscreenBtn.textContent = 'Full screen';
@@ -4254,7 +4490,7 @@ function renderContactsView(contacts) {
                         return `<li class="contacts-upcoming-item">
                             <span class="contacts-upcoming-name">${name}</span>
                             <span class="contacts-upcoming-next">${nextStr}</span>
-                            <button type="button" class="contacts-btn contacts-send-reminder-btn" data-contact-id="${id}" data-contact-name="${name}" data-contact-email="${email}" title="Send reminder email">Send reminder</button>
+                            <button type="button" class="contacts-btn contacts-send-reminder-btn" data-contact-id="${id}" data-contact-name="${name}" data-contact-email="${email}" title="Send reminder now (immediate)">Send reminder</button>
                         </li>`;
                     }).join('')}
                 </ul>
@@ -4296,7 +4532,7 @@ function renderContactsView(contacts) {
                     </div>
                     <div class="contacts-card-actions">
                         <button type="button" class="contacts-btn contacts-view-btn" data-contact-id="${id}" title="View / Edit">Edit</button>
-                        <button type="button" class="contacts-btn contacts-send-reminder-btn" data-contact-id="${id}" data-contact-name="${name}" data-contact-email="${email}" title="Send reminder">Remind</button>
+                        <button type="button" class="contacts-btn contacts-send-reminder-btn" data-contact-id="${id}" data-contact-name="${name}" data-contact-email="${email}" title="Send reminder now (immediate)">Remind</button>
                         <button type="button" class="contacts-btn contacts-delete-btn" data-contact-id="${id}" data-contact-name="${name}" title="Delete">Delete</button>
                     </div>
                 </div>`;
@@ -4348,15 +4584,24 @@ function setupContactsViewHandlers(container) {
         });
     });
     container.querySelectorAll('.contacts-delete-btn').forEach(btn => {
-        btn.addEventListener('click', async function() {
-            const id = parseInt(this.dataset.contactId, 10);
-            const name = (this.dataset.contactName || 'this contact').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        btn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const rawId = this.getAttribute('data-contact-id');
+            const id = rawId != null && rawId !== '' ? parseInt(String(rawId).trim(), 10) : NaN;
+            const name = (this.getAttribute('data-contact-name') || 'this contact').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            if (isNaN(id) || id < 1) {
+                alert('Cannot delete: invalid contact id.');
+                return;
+            }
             if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
             try {
-                await (typeof API !== 'undefined' && API.deleteLandDevelopmentContact ? API.deleteLandDevelopmentContact(id) : Promise.reject(new Error('Contacts API not loaded. Ensure api-client is loaded and includes deleteLandDevelopmentContact.')));
+                const api = typeof API !== 'undefined' && API.deleteLandDevelopmentContact ? API : null;
+                if (!api) throw new Error('Contacts API not loaded. Ensure api-client is loaded and includes deleteLandDevelopmentContact.');
+                await api.deleteLandDevelopmentContact(id);
                 switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
-            } catch (e) {
-                alert(e.message || 'Delete failed.');
+            } catch (err) {
+                alert(err?.message || err?.error?.message || 'Delete failed.');
             }
         });
     });
@@ -4394,6 +4639,20 @@ function showContactModal(contact) {
                 <input type="date" id="contact-field-date" value="${contact?.DateOfContact ? String(contact.DateOfContact).slice(0, 10) : ''}" />
                 <label>Follow-up timeframe (days)</label>
                 <input type="number" id="contact-field-followup-days" min="0" placeholder="e.g. 180" value="${contact?.FollowUpTimeframeDays != null ? contact.FollowUpTimeframeDays : ''}" />
+                <div class="contact-scheduled-reminder-box" id="contact-scheduled-reminder-box" aria-live="polite">
+                    <strong>Scheduled reminder</strong>
+                    <p class="contact-scheduled-reminder-text">When the follow-up date is reached, we'll send a reminder so <em>you</em> remember to reach out to this contact (e.g. &quot;You need to reach out to [contact] — it's been X days&quot;). The <strong>Remind</strong> button on the contact card sends an immediate email to the contact.</p>
+                    <label for="contact-reminder-select-input">Send reminder to (contact)</label>
+                    <div class="searchable-select-wrapper contact-reminder-select-wrapper" data-reminder-select="true">
+                        <input type="text" id="contact-reminder-select-input" class="searchable-select-input" placeholder="Search contacts..." autocomplete="off" value="" data-reminder-to-email="" />
+                        <div class="searchable-select-dropdown" style="display: none;">
+                            <div class="searchable-select-options"></div>
+                        </div>
+                    </div>
+                    <label for="contact-field-reminder-email">Or enter email address</label>
+                    <input type="email" id="contact-field-reminder-email" placeholder="you@company.com or team@company.com" value="" />
+                    <p id="contact-scheduled-reminder-preview" class="contact-scheduled-reminder-preview"></p>
+                </div>
                 <label>Notes</label>
                 <textarea id="contact-field-notes" rows="3">${(contact?.Notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
                 <div class="contacts-form-actions">
@@ -4405,6 +4664,102 @@ function showContactModal(contact) {
     `;
     document.body.appendChild(modal);
     const close = () => { modal.remove(); };
+
+    const reminderSelectInput = modal.querySelector('#contact-reminder-select-input');
+    const reminderEmailInput = modal.querySelector('#contact-field-reminder-email');
+    const contactsList = (window.landDevelopmentContacts || []).filter(c => getLandDevContactId(c) !== id);
+    if (contact?.ReminderToEmail) {
+        const rem = (contact.ReminderToEmail || '').trim().toLowerCase();
+        const match = contactsList.find(c => (c.Email || '').trim().toLowerCase() === rem);
+        if (match) {
+            reminderSelectInput.value = (match.Name || '').trim();
+            reminderSelectInput.setAttribute('data-reminder-to-email', (match.Email || '').trim());
+        } else {
+            reminderEmailInput.value = (contact.ReminderToEmail || '').trim();
+        }
+    }
+
+    function getEffectiveReminderToEmail() {
+        const fromSelect = (reminderSelectInput?.getAttribute('data-reminder-to-email') || '').trim();
+        const fromEmail = (reminderEmailInput?.value || '').trim();
+        return fromSelect || fromEmail || '';
+    }
+
+    const wrapper = modal.querySelector('.contact-reminder-select-wrapper');
+    const dropdown = wrapper?.querySelector('.searchable-select-dropdown');
+    const optionsContainer = wrapper?.querySelector('.searchable-select-options');
+    if (wrapper && dropdown && optionsContainer) {
+        function updateReminderOptions(q) {
+            const qq = (q || '').trim().toLowerCase();
+            const list = qq ? contactsList.filter(c => {
+                const name = (c.Name || '').toLowerCase();
+                const email = (c.Email || '').toLowerCase();
+                return name.includes(qq) || email.includes(qq);
+            }) : contactsList;
+            let html = '';
+            list.forEach(c => {
+                const cid = getLandDevContactId(c);
+                const name = (c.Name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const email = (c.Email || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                html += `<div class="searchable-select-option" data-action="select" data-reminder-contact-id="${cid}" data-reminder-email="${(c.Email || '').replace(/"/g, '&quot;')}" data-reminder-name="${name.replace(/"/g, '&quot;')}">${name}${email ? ` <span class="searchable-select-option-email">${email}</span>` : ''}</div>`;
+            });
+            if (!html) html = '<div class="searchable-select-option no-results">No contacts match. Use the email field below.</div>';
+            optionsContainer.innerHTML = html;
+        }
+        reminderSelectInput.addEventListener('focus', () => { dropdown.style.display = 'block'; updateReminderOptions(reminderSelectInput.value); });
+        reminderSelectInput.addEventListener('input', () => { updateReminderOptions(reminderSelectInput.value); dropdown.style.display = 'block'; updateScheduledReminderPreview(); });
+        reminderSelectInput.addEventListener('click', (e) => e.stopPropagation());
+        let closeDropdown = (e) => { if (!wrapper.contains(e.target)) dropdown.style.display = 'none'; };
+        document.addEventListener('click', closeDropdown);
+        const origClose = close;
+        close = () => { document.removeEventListener('click', closeDropdown); origClose(); };
+        optionsContainer.addEventListener('click', (e) => {
+            const option = e.target.closest('.searchable-select-option');
+            if (!option || option.classList.contains('no-results')) return;
+            if (option.dataset.action === 'select') {
+                const name = (option.dataset.reminderName || option.textContent).trim().replace(/&quot;/g, '"');
+                const email = (option.dataset.reminderEmail || '').trim();
+                reminderSelectInput.value = name;
+                reminderSelectInput.setAttribute('data-reminder-to-email', email);
+                dropdown.style.display = 'none';
+                reminderEmailInput.value = '';
+                updateScheduledReminderPreview();
+            }
+        });
+    }
+
+    function updateScheduledReminderPreview() {
+        const reminderTo = getEffectiveReminderToEmail();
+        const dateVal = (document.getElementById('contact-field-date')?.value || '').trim();
+        const daysVal = document.getElementById('contact-field-followup-days')?.value;
+        const days = daysVal !== '' && daysVal != null ? parseInt(daysVal, 10) : null;
+        const previewEl = document.getElementById('contact-scheduled-reminder-preview');
+        if (!previewEl) return;
+        if (reminderTo && dateVal && !isNaN(days) && days >= 0) {
+            const d = new Date(dateVal);
+            d.setDate(d.getDate() + days);
+            if (!isNaN(d.getTime())) {
+                const followUpStr = d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric', year: 'numeric' });
+                previewEl.textContent = `We'll notify ${reminderTo} on ${followUpStr} to reach out to this contact.`;
+                previewEl.classList.remove('contact-scheduled-reminder-no-email');
+            } else {
+                previewEl.textContent = reminderTo ? `We'll notify ${reminderTo} when the follow-up date is reached.` : '';
+                previewEl.classList.add('contact-scheduled-reminder-no-email');
+            }
+        } else if (reminderTo) {
+            previewEl.textContent = `We'll notify ${reminderTo} when the follow-up date is reached. Set date of contact and follow-up days above.`;
+            previewEl.classList.remove('contact-scheduled-reminder-no-email');
+        } else {
+            previewEl.textContent = '';
+        }
+    }
+    updateScheduledReminderPreview();
+    ['contact-field-date', 'contact-field-followup-days'].forEach(uid => {
+        const el = document.getElementById(uid);
+        if (el) { el.addEventListener('input', updateScheduledReminderPreview); el.addEventListener('change', updateScheduledReminderPreview); }
+    });
+    if (reminderEmailInput) { reminderEmailInput.addEventListener('input', () => { reminderSelectInput.value = ''; reminderSelectInput.removeAttribute('data-reminder-to-email'); updateScheduledReminderPreview(); }); reminderEmailInput.addEventListener('change', updateScheduledReminderPreview); }
+
     modal.querySelector('.contacts-cancel-btn').addEventListener('click', close);
     modal.querySelector('.contacts-modal').addEventListener('click', e => e.stopPropagation());
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
@@ -4422,6 +4777,7 @@ function showContactModal(contact) {
             State: (document.getElementById('contact-field-state')?.value || '').trim().toUpperCase().slice(0, 2) || undefined,
             DateOfContact: (document.getElementById('contact-field-date')?.value || '').trim() || undefined,
             FollowUpTimeframeDays: (() => { const v = document.getElementById('contact-field-followup-days')?.value; if (v === '' || v == null) return undefined; const n = parseInt(v, 10); return isNaN(n) ? undefined : n; })(),
+            ReminderToEmail: getEffectiveReminderToEmail() || undefined,
             Notes: (document.getElementById('contact-field-notes')?.value || '').trim() || undefined
         };
         Object.keys(data).forEach(k => { if (data[k] === undefined) delete data[k]; });
@@ -4443,27 +4799,26 @@ function showContactModal(contact) {
 }
 
 function showSendReminderModal(contactOrContext, emailPrefill) {
-    const email = emailPrefill != null ? emailPrefill : (contactOrContext?.Email || '');
-    const name = contactOrContext?.Name || '';
-    const contactId = contactOrContext ? getLandDevContactId(contactOrContext) : null;
+    const contacts = window.landDevelopmentContacts || [];
+    const preSelectId = contactOrContext ? getLandDevContactId(contactOrContext) : null;
+    const emailPrefillVal = emailPrefill != null ? emailPrefill : (contactOrContext?.Email || '');
     const modal = document.createElement('div');
     modal.className = 'deal-detail-overlay contacts-modal-overlay';
     modal.id = 'send-reminder-modal';
     modal.innerHTML = `
-        <div class="contacts-modal" role="dialog" aria-labelledby="reminder-modal-title">
-            <h3 id="reminder-modal-title">Send follow-up reminder</h3>
-            <p class="contacts-reminder-desc">Send an email reminder to follow up. Choose a contact or enter an email address.</p>
+        <div class="contacts-modal contacts-reminder-modal" role="dialog" aria-labelledby="reminder-modal-title">
+            <h3 id="reminder-modal-title">Send reminder now</h3>
+            <p class="contacts-reminder-desc">Send an immediate email reminder. Search contacts and select one or more, or enter an email address not in the list.</p>
             <form id="send-reminder-form" class="contacts-form">
-                <label>Contact (optional)</label>
-                <select id="reminder-contact-select">
-                    <option value="">— Or enter email below —</option>
-                    ${(window.landDevelopmentContacts || []).map(c => `
-                        <option value="${getLandDevContactId(c)}" data-email="${(c.Email || '').replace(/"/g, '&quot;')}" data-name="${(c.Name || '').replace(/"/g, '&quot;')}" ${contactId === getLandDevContactId(c) ? 'selected' : ''}>${(c.Name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</option>
-                    `).join('')}
-                </select>
-                <label>Or email address</label>
-                <input type="email" id="reminder-email" placeholder="someone@example.com" value="${(email || '').replace(/"/g, '&quot;')}" />
-                <label>Message (optional)</label>
+                <label for="reminder-search">Search contacts</label>
+                <input type="text" id="reminder-search" class="reminder-search-input" placeholder="Type name or email…" autocomplete="off" />
+                <div class="reminder-contact-list-wrap" aria-label="Contact list">
+                    <ul id="reminder-contact-list" class="reminder-contact-list"></ul>
+                    <p id="reminder-contact-list-empty" class="reminder-list-empty hidden">No contacts match. Add contacts in the Contacts tab or use the email field below.</p>
+                </div>
+                <label for="reminder-email">Or send to an email address (not in list)</label>
+                <input type="email" id="reminder-email" placeholder="someone@example.com" value="${(emailPrefillVal || '').replace(/"/g, '&quot;')}" />
+                <label for="reminder-message">Message (optional)</label>
                 <textarea id="reminder-message" rows="3" placeholder="e.g. Reminder to follow up on the land discussion."></textarea>
                 <div class="contacts-form-actions">
                     <button type="submit" class="contacts-btn contacts-save-btn">Send reminder</button>
@@ -4474,29 +4829,95 @@ function showSendReminderModal(contactOrContext, emailPrefill) {
     `;
     document.body.appendChild(modal);
     const close = () => { modal.remove(); };
-    const selectEl = modal.querySelector('#reminder-contact-select');
-    const emailEl = modal.querySelector('#reminder-email');
-    selectEl?.addEventListener('change', function() {
-        const opt = this.selectedOptions && this.selectedOptions[0];
-        if (opt && opt.value) emailEl.value = (opt.dataset.email || '').trim();
-    });
+    const listEl = modal.querySelector('#reminder-contact-list');
+    const emptyEl = modal.querySelector('#reminder-contact-list-empty');
+    const searchEl = modal.querySelector('#reminder-search');
+
+    function filterContacts(q) {
+        const qq = (q || '').trim().toLowerCase();
+        if (!qq) return contacts;
+        return contacts.filter(c => {
+            const name = (c.Name || '').toLowerCase();
+            const email = (c.Email || c.PhoneNumber || '').toLowerCase();
+            const type = (c.Type || '').toLowerCase();
+            const city = (c.City || '').toLowerCase();
+            const state = (c.State || '').toLowerCase();
+            return name.includes(qq) || email.includes(qq) || type.includes(qq) || city.includes(qq) || state.includes(qq);
+        });
+    }
+
+    function renderContactList(filtered) {
+        listEl.innerHTML = '';
+        if (filtered.length === 0) {
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+        emptyEl.classList.add('hidden');
+        filtered.forEach(c => {
+            const id = getLandDevContactId(c);
+            const name = (c.Name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const email = (c.Email || c.PhoneNumber || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const checked = id === preSelectId ? ' checked' : '';
+            const li = document.createElement('li');
+            li.className = 'reminder-contact-item';
+            li.innerHTML = `
+                <label class="reminder-contact-label">
+                    <input type="checkbox" class="reminder-contact-checkbox" value="${id}" data-email="${email.replace(/"/g, '&quot;')}"${checked} />
+                    <span class="reminder-contact-name">${name}</span>
+                    ${email ? `<span class="reminder-contact-email">${email}</span>` : ''}
+                </label>
+            `;
+            listEl.appendChild(li);
+        });
+    }
+
+    renderContactList(contacts);
+    searchEl.addEventListener('input', function() { renderContactList(filterContacts(this.value)); });
+    searchEl.addEventListener('keydown', function(e) { e.stopPropagation(); });
+
     modal.querySelector('.contacts-cancel-btn').addEventListener('click', close);
     modal.querySelector('.contacts-modal').addEventListener('click', e => e.stopPropagation());
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
     modal.querySelector('#send-reminder-form').addEventListener('submit', async (e) => {
         e.preventDefault();
-        const selectedId = selectEl?.value ? parseInt(selectEl.value, 10) : null;
-        const emailVal = (emailEl?.value || '').trim();
-        if (!selectedId && !emailVal) { alert('Select a contact or enter an email address.'); return; }
-        const payload = {};
-        if (selectedId) payload.contactId = selectedId;
-        if (emailVal) payload.email = emailVal;
+        const checked = modal.querySelectorAll('.reminder-contact-checkbox:checked');
+        const contactIds = Array.from(checked).map(cb => parseInt(cb.value, 10)).filter(n => !isNaN(n));
+        const emailVal = (modal.querySelector('#reminder-email')?.value || '').trim();
+        if (contactIds.length === 0 && !emailVal) {
+            alert('Select at least one contact or enter an email address.');
+            return;
+        }
         const msg = (modal.querySelector('#reminder-message')?.value || '').trim();
-        if (msg) payload.message = msg;
+        const send = typeof API !== 'undefined' && API.sendLandDevelopmentContactReminder;
+        if (!send) {
+            alert('Contacts API not loaded. Ensure api-client is loaded and includes sendLandDevelopmentContactReminder.');
+            return;
+        }
+        const results = { sent: 0, failed: [] };
         try {
-            await (typeof API !== 'undefined' && API.sendLandDevelopmentContactReminder ? API.sendLandDevelopmentContactReminder(payload) : Promise.reject(new Error('Contacts API not loaded. Ensure api-client is loaded and includes sendLandDevelopmentContactReminder.')));
+            for (const id of contactIds) {
+                try {
+                    await API.sendLandDevelopmentContactReminder({ contactId: id, message: msg || undefined });
+                    results.sent += 1;
+                } catch (err) {
+                    results.failed.push({ id, label: `Contact ${id}`, error: err.message || String(err) });
+                }
+            }
+            if (emailVal) {
+                try {
+                    await API.sendLandDevelopmentContactReminder({ email: emailVal, message: msg || undefined });
+                    results.sent += 1;
+                } catch (err) {
+                    results.failed.push({ id: null, label: emailVal, error: err.message || String(err) });
+                }
+            }
             close();
-            alert('Reminder sent.');
+            if (results.failed.length === 0) {
+                alert(results.sent === 1 ? 'Reminder sent.' : `Reminder(s) sent to ${results.sent} recipient(s).`);
+            } else {
+                const failMsg = results.failed.map(f => `${f.label}: ${f.error}`).join('\n');
+                alert(`Sent to ${results.sent} recipient(s). Failed:\n${failMsg}`);
+            }
         } catch (err) {
             alert(err.message || 'Failed to send reminder.');
         }
@@ -4904,6 +5325,187 @@ function clearFilters() {
 // Make clearFilters globally accessible
 window.clearFilters = clearFilters;
 
+// Load Asana start-date discrepancy for deal detail (match by task name to deal name; show and offer remedies if admin)
+function loadDealDetailAsanaDiscrepancy(modal, deal) {
+    const wrap = modal && modal.querySelector('#deal-detail-asana-discrepancy-wrap');
+    const content = modal && modal.querySelector('#deal-detail-asana-discrepancy-content');
+    if (!wrap || !content) return;
+    if (typeof API === 'undefined' || !API.getAsanaUpcomingTasks) return;
+
+    const dealName = (deal.Name || deal.name || '').trim();
+    const dbStartDate = deal['Start Date'] || deal.startDate;
+    const dbDateStr = dbStartDate ? (function(d) {
+        try {
+            const dt = new Date(d);
+            if (isNaN(dt.getTime())) return null;
+            return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+        } catch (e) { return null; }
+    })(dbStartDate) : null;
+
+    API.getAsanaUpcomingTasks({ daysAhead: 365 }).then(function(res) {
+        if (!res || !res.success || !Array.isArray(res.data)) return;
+        let matchedTask = null;
+        for (let i = 0; i < (res.data || []).length; i++) {
+            const project = res.data[i];
+            const tasks = project.tasks || [];
+            for (let j = 0; j < tasks.length; j++) {
+                const task = tasks[j];
+                const taskName = (task.name || '').trim();
+                if (asanaProjectNameMatchesDeal(taskName, dealName)) {
+                    matchedTask = task;
+                    break;
+                }
+            }
+            if (matchedTask) break;
+        }
+        if (!matchedTask) return;
+
+        // Use Asana custom field "Start Date" only; never treat due_on as start date.
+        const asanaStartDateStr = (matchedTask.start_date || matchedTask.start_date_custom || '').trim() || null;
+
+        const isAdmin = typeof isAuthenticated !== 'undefined' && isAuthenticated;
+        const asanaUrl = (matchedTask.permalink_url || 'https://app.asana.com/0/0/' + (matchedTask.gid || '')).replace(/"/g, '&quot;');
+
+        if (!asanaStartDateStr) {
+            var dbFormattedNoDate = dbDateStr ? formatDate(dbStartDate) : '';
+            content.innerHTML =
+                '<p class="deal-detail-asana-discrepancy-msg">Asana has no start date for this project.' +
+                (dbDateStr ? ' Database start date is <strong>' + (dbFormattedNoDate.replace(/</g, '&lt;')) + '</strong>. Do you want to fill the start date in Asana with the database date?' : '') +
+                '</p>' +
+                (isAdmin && dbDateStr
+                    ? '<div class="deal-detail-asana-remedy-btns">' +
+                      '<button type="button" class="deal-detail-btn deal-detail-asana-fill-date" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-db-date="' + (dbDateStr || '').replace(/"/g, '&quot;') + '">Fill start date in Asana with database date</button>' +
+                      '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>' +
+                      '</div>'
+                    : '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>');
+            wrap.style.display = 'block';
+            if (isAdmin && dbDateStr) {
+                modal.querySelectorAll('.deal-detail-asana-fill-date').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var taskGid = this.getAttribute('data-task-gid');
+                        var dbDate = this.getAttribute('data-db-date');
+                        if (!taskGid || !dbDate) return;
+                        if (typeof API.updateAsanaTaskStartDate !== 'function') {
+                            if (typeof console !== 'undefined') console.warn('API.updateAsanaTaskStartDate not implemented');
+                            return;
+                        }
+                        btn.disabled = true;
+                        API.updateAsanaTaskStartDate(taskGid, dbDate).then(function() {
+                            content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg">Asana Start Date set to match database.</p>' +
+                                '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>';
+                        }).catch(function(e) {
+                            btn.disabled = false;
+                            if (typeof console !== 'undefined') console.error(e);
+                        });
+                    });
+                });
+            }
+            return;
+        }
+
+        const asanaDateStr = asanaStartDateStr;
+        const asanaDate = parseLocalDateOnly(asanaDateStr) || new Date(asanaDateStr);
+        const dbDate = dbDateStr ? (parseLocalDateOnly(dbDateStr) || new Date(dbDateStr)) : null;
+        if (!dbDate || isNaN(dbDate.getTime())) return;
+        const sameDay = dbDateStr && asanaDateStr && dbDateStr === asanaDateStr;
+        const dbFormatted = formatDate(dbStartDate);
+        const asanaFormatted = formatDate(asanaDate);
+
+        if (sameDay) {
+            content.innerHTML =
+                '<p class="deal-detail-asana-discrepancy-msg">Database and Asana start dates match (<strong>' + (dbFormatted.replace(/</g, '&lt;')) + '</strong>).</p>' +
+                '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>';
+        } else {
+            content.innerHTML =
+                '<p class="deal-detail-asana-discrepancy-msg">Database start date is <strong>' + (dbFormatted.replace(/</g, '&lt;')) + '</strong>; Asana start date for this project is <strong>' + (asanaFormatted.replace(/</g, '&lt;')) + '</strong>.</p>' +
+                (isAdmin
+                    ? '<p class="deal-detail-asana-remedies">Correct:</p>' +
+                      '<div class="deal-detail-asana-remedy-btns">' +
+                      '<button type="button" class="deal-detail-btn deal-detail-asana-override-asana" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-db-date="' + (dbDateStr || '').replace(/"/g, '&quot;') + '">Override Asana date with database date</button>' +
+                      '<button type="button" class="deal-detail-btn deal-detail-asana-override-db" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-asana-date="' + (asanaDateStr || '').replace(/"/g, '&quot;') + '">Override database date with Asana date</button>' +
+                      '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>' +
+                      '</div>'
+                    : '<p class="deal-detail-asana-view-only">Only admins can correct dates.</p>' +
+                      '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>');
+        }
+        wrap.style.display = 'block';
+
+        if (isAdmin && !sameDay) {
+            const dealPipelineId = deal.DealPipelineId || (deal._original && deal._original.DealPipelineId);
+            modal.querySelectorAll('.deal-detail-asana-override-asana').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    const taskGid = this.getAttribute('data-task-gid');
+                    const dbDate = this.getAttribute('data-db-date');
+                    if (!taskGid || !dbDate) return;
+                    if (typeof API.updateAsanaTaskStartDate !== 'function') {
+                        if (typeof console !== 'undefined') console.warn('API.updateAsanaTaskStartDate not implemented');
+                        return;
+                    }
+                    btn.disabled = true;
+                    API.updateAsanaTaskStartDate(taskGid, dbDate).then(function() {
+                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg">Asana Start Date updated to match database.</p>';
+                    }).catch(function(e) {
+                        btn.disabled = false;
+                        if (typeof console !== 'undefined') console.error(e);
+                    });
+                });
+            });
+            modal.querySelectorAll('.deal-detail-asana-override-db').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    const asanaDate = this.getAttribute('data-asana-date');
+                    if (!asanaDate) return;
+                    if (!dealPipelineId) {
+                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Deal pipeline ID not found; cannot update database.</p>';
+                        return;
+                    }
+                    if (typeof API.updateDealPipeline !== 'function') return;
+                    btn.disabled = true;
+                    API.updateDealPipeline(dealPipelineId, { StartDate: asanaDate }).then(function() {
+                        deal['Start Date'] = asanaDate;
+                        deal.StartDate = asanaDate;
+                        if (typeof allDeals !== 'undefined' && Array.isArray(allDeals)) {
+                            const idx = allDeals.findIndex(function(d) { return (d.DealPipelineId || (d._original && d._original.DealPipelineId)) === dealPipelineId; });
+                            if (idx >= 0) {
+                                allDeals[idx]['Start Date'] = asanaDate;
+                                allDeals[idx].StartDate = asanaDate;
+                            }
+                        }
+                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg">Database start date updated to match Asana.</p>' +
+                            '<a href="' + (matchedTask.permalink_url || '').replace(/"/g, '&quot;') + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>';
+                        var overviewSection = modal.querySelector('.deal-detail-section');
+                        if (overviewSection) {
+                            var items = overviewSection.querySelectorAll('.deal-detail-item');
+                            for (var i = 0; i < items.length; i++) {
+                                var label = items[i].querySelector('label');
+                                if (label && label.textContent.trim() === 'Start Date') {
+                                    var span = items[i].querySelector('span');
+                                    if (span) {
+                                        try {
+                                            var d = new Date(asanaDate);
+                                            var now = new Date();
+                                            var diffDays = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+                                            var timeInfo = diffDays >= 0 ? (diffDays + ' day' + (diffDays !== 1 ? 's' : '') + ' away') : (Math.abs(diffDays) + ' day' + (Math.abs(diffDays) !== 1 ? 's' : '') + ' ago');
+                                            span.innerHTML = formatDate(asanaDate) + ' <span class="time-info">(' + timeInfo + ')</span>';
+                                        } catch (e) {
+                                            span.textContent = formatDate(asanaDate);
+                                        }
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }).catch(function(e) {
+                        btn.disabled = false;
+                        var errMsg = (e && (e.message || e.error && e.error.message)) ? (e.message || e.error.message) : 'Update failed';
+                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Database update failed: ' + String(errMsg).replace(/</g, '&lt;') + '</p>';
+                        if (typeof console !== 'undefined') console.error(e);
+                    });
+                });
+            });
+        }
+    }).catch(function() {});
+}
+
 // Show deal detail page
 function showDealDetail(deal) {
     const stage = normalizeStage(deal.Stage || deal.stage);
@@ -5143,6 +5745,10 @@ function showDealDetail(deal) {
                         </div>
                         </div>
                         ` : ''}
+                <div class="deal-detail-section deal-detail-asana-discrepancy-section" id="deal-detail-asana-discrepancy-wrap" style="display: none;">
+                    <h3>Asana start date</h3>
+                    <div id="deal-detail-asana-discrepancy-content"></div>
+                </div>
                 <div class="deal-detail-section deal-detail-files-section" id="deal-detail-files-section" data-deal-pipeline-id="${deal.DealPipelineId || deal._original?.DealPipelineId || ''}">
                     <h3>Files</h3>
                     <p class="deal-detail-files-desc">${typeof isAuthenticated !== 'undefined' && isAuthenticated ? 'View, download, upload, rename, or delete files (e.g. LOIs, site plans).' : 'View and download files. Only admins can upload, rename, or delete.'}</p>
@@ -5550,6 +6156,8 @@ function showDealDetail(deal) {
         modal.remove();
     });
     
+    loadDealDetailAsanaDiscrepancy(modal, deal);
+
     modal.querySelector('.deal-detail-close').addEventListener('click', () => {
         modal.remove();
     });
@@ -5837,6 +6445,20 @@ async function switchView(view, deals) {
             break;
         default:
             renderDealList(deals);
+    }
+
+    updateVisibleDealCount(deals);
+}
+
+// Update the fixed bottom-right deal count badge (main dashboard filtered count)
+function updateVisibleDealCount(deals) {
+    const source = deals != null ? deals : (typeof allDeals !== 'undefined' ? allDeals : []);
+    const filtered = Array.isArray(source) && source.length > 0 ? applyFilters(source, true) : [];
+    const count = filtered.length;
+    const badge = document.getElementById('visible-deal-count-badge');
+    if (badge) {
+        badge.textContent = count === 1 ? '1 deal' : count + ' deals';
+        badge.style.display = '';
     }
 }
 
@@ -6167,6 +6789,99 @@ function initStageFilterDropdowns() {
     }, true);
 }
 
+// Populate and refresh fullscreen overlay (filters + deals list)
+function setupFullscreenOverlay() {
+    const overlay = document.getElementById('map-fullscreen-overlay');
+    if (!overlay) return;
+    overlay.classList.add('visible');
+    overlay.setAttribute('aria-hidden', 'false');
+    var stageFiltersEl = document.getElementById('map-fullscreen-stage-filters');
+    if (stageFiltersEl) {
+        // Map only: Dead and Rejected share one filter (no separate Dead chip)
+        var stages = STAGE_DISPLAY_ORDER.filter(function(s) { return s !== 'START' && s !== 'Dead'; });
+        var current = (typeof currentFilters !== 'undefined' && currentFilters.stages) ? currentFilters.stages : [];
+        stageFiltersEl.innerHTML = '<span class="map-fs-filter-label">Stage:</span>' + stages.map(function(stage) {
+            var checked = current.length === 0 || current.some(function(s) {
+                var n = normalizeStage(s);
+                if (stage === 'Rejected') return n === 'Rejected' || n === 'Dead';
+                return n === normalizeStage(stage);
+            });
+            var cfg = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
+            var color = (cfg && cfg.color) || '#8b5cf6';
+            return '<label class="map-fs-stage-chip"><input type="checkbox" class="map-fs-stage-cb" value="' + (stage.replace(/"/g, '&quot;')) + '" ' + (checked ? 'checked' : '') + '><span class="map-fs-stage-dot" style="background:' + color + '"></span>' + stage + '</label>';
+        }).join('');
+        stageFiltersEl.querySelectorAll('.map-fs-stage-cb').forEach(function(cb) {
+            cb.addEventListener('change', function() {
+                var checked = stageFiltersEl.querySelectorAll('.map-fs-stage-cb:checked');
+                var selected = Array.from(checked).map(function(c) { return c.value; });
+                if (selected.length === stages.length) selected = [];
+                if (typeof currentFilters !== 'undefined') currentFilters.stages = selected;
+                var deals = (typeof allDeals !== 'undefined' && allDeals.length) ? allDeals : [];
+                // When "all" stages selected (selected.length === 0), use forOverview so Rejected/Dead etc. are not excluded by default
+                var filtered = applyFilters(deals, true, selected.length === 0);
+                if (selected.length) {
+                    filtered = filtered.filter(function(d) {
+                        var st = normalizeStage(d.Stage || d.stage);
+                        return selected.some(function(s) {
+                            var n = normalizeStage(s);
+                            return n === st || (n === 'Rejected' && st === 'Dead');
+                        });
+                    });
+                }
+                initMap(filtered).then(function() {
+                    if (window.updateFullscreenDealsList) window.updateFullscreenDealsList();
+                });
+            });
+        });
+    }
+    var dealsBtn = document.getElementById('map-fullscreen-deals-btn');
+    var panel = document.getElementById('map-fullscreen-deals-panel');
+    var closeBtn = document.getElementById('map-fullscreen-deals-close');
+    if (dealsBtn && panel) {
+        dealsBtn.onclick = function() {
+            panel.classList.toggle('open');
+            if (window.updateFullscreenDealsList) window.updateFullscreenDealsList();
+        };
+    }
+    if (closeBtn && panel) closeBtn.onclick = function() { panel.classList.remove('open'); };
+    var exitCityBtn = document.getElementById('map-fullscreen-exit-city-btn');
+    if (exitCityBtn) {
+        exitCityBtn.style.display = (typeof isCityView !== 'undefined' && isCityView) ? '' : 'none';
+        exitCityBtn.onclick = function() {
+            if (typeof exitCityView === 'function') exitCityView();
+            exitCityBtn.style.display = 'none';
+        };
+    }
+    if (window.updateFullscreenDealsList) window.updateFullscreenDealsList();
+}
+
+function updateFullscreenDealsList() {
+    var listEl = document.getElementById('map-fullscreen-deals-list');
+    var container = document.getElementById('map-canvas-container');
+    if (!listEl || !container || !container.classList.contains('is-fullscreen')) return;
+    var deals = (typeof visibleDealsForMap !== 'undefined' && visibleDealsForMap.length) ? visibleDealsForMap : [];
+    if (deals.length === 0) {
+        listEl.innerHTML = '<p class="map-fs-deals-empty">No deals on map. Adjust filters or zoom.</p>';
+        return;
+    }
+    listEl.innerHTML = deals.slice(0, 100).map(function(deal) {
+        var name = (deal.Name || deal.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        var stage = (deal.Stage || deal.stage || '—').replace(/</g, '&lt;');
+        var loc = (deal.Location || deal.location || '—').replace(/</g, '&lt;');
+        return '<button type="button" class="map-fs-deal-row" data-deal-name="' + name + '"><strong>' + name + '</strong><span class="map-fs-deal-meta">' + stage + ' · ' + loc + '</span></button>';
+    }).join('');
+    if (deals.length > 100) listEl.innerHTML += '<p class="map-fs-deals-more">Showing first 100 of ' + deals.length + ' deals.</p>';
+    listEl.querySelectorAll('.map-fs-deal-row').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var n = (this.getAttribute('data-deal-name') || '').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+            var deal = (typeof allDeals !== 'undefined' ? allDeals : []).find(function(d) { return (d.Name || d.name) === n; }) ||
+                (visibleDealsForMap && visibleDealsForMap.find(function(d) { return (d.Name || d.name) === n; }));
+            if (deal && typeof showDealDetail === 'function') showDealDetail(deal);
+        });
+    });
+}
+window.updateFullscreenDealsList = updateFullscreenDealsList;
+
 // One-time delegated handler for map fullscreen (works in Domo/iframe and when map is re-rendered)
 function initMapFullscreenDelegation() {
     if (window._mapFullscreenDelegationDone) return;
@@ -6182,7 +6897,15 @@ function initMapFullscreenDelegation() {
         const fsBtn = document.getElementById('map-fullscreen-btn');
         const fsExitBtn = document.getElementById('map-fullscreen-exit-btn');
         if (exitBtn && mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+            var ov = document.getElementById('map-fullscreen-overlay');
+            if (ov) { ov.classList.remove('visible'); ov.setAttribute('aria-hidden', 'true'); }
+            var legendEl = document.getElementById('map-legend');
+            if (legendEl && legendEl.parentNode && legendEl.parentNode.id === 'map-fullscreen-legend-slot') {
+                mapCanvasContainer.appendChild(legendEl);
+            }
             mapCanvasContainer.classList.remove('is-fullscreen');
+            var dp = document.getElementById('map-fullscreen-deals-panel');
+            if (dp) dp.classList.remove('open');
             if (fsExitBtn) fsExitBtn.style.display = 'none';
             if (fsBtn) fsBtn.textContent = 'Full screen';
             document.body.classList.remove('map-fullscreen-active');
@@ -6192,6 +6915,14 @@ function initMapFullscreenDelegation() {
                     var c = mapInstance.getCenter();
                     var z = mapInstance.getZoom();
                     mapInstance.setView(c, z);
+                    if (typeof mapMarkers !== 'undefined' && mapMarkers.length) {
+                        mapMarkers.forEach(function(m) {
+                            if (m.marker && m.marker.getLatLng) {
+                                var ll = m.marker.getLatLng();
+                                if (ll) m.marker.setLatLng(ll);
+                            }
+                        });
+                    }
                 }, 150);
             }
             return;
@@ -6201,15 +6932,42 @@ function initMapFullscreenDelegation() {
             if (fsExitBtn) fsExitBtn.style.display = 'block';
             if (fsBtn) fsBtn.textContent = 'Exit full screen';
             document.body.classList.add('map-fullscreen-active');
-            if (typeof mapInstance !== 'undefined' && mapInstance) {
+            if (typeof setupFullscreenOverlay === 'function') setupFullscreenOverlay();
+            var legendEl = document.getElementById('map-legend');
+            var legendSlot = document.getElementById('map-fullscreen-legend-slot');
+            if (legendEl && legendSlot && legendEl.parentNode !== legendSlot) {
+                legendSlot.appendChild(legendEl);
+            }
+            if (typeof applyFilters === 'function' && typeof initMap === 'function') {
+                var deals = (typeof allDeals !== 'undefined' && allDeals.length) ? allDeals : [];
+                var showAllStages = (typeof currentFilters !== 'undefined' && (!currentFilters.stages || currentFilters.stages.length === 0));
+                var filtered = applyFilters(deals, true, showAllStages);
+                initMap(filtered).then(function() {
+                    if (typeof mapInstance !== 'undefined' && mapInstance) {
+                        mapInstance.invalidateSize();
+                        var c = mapInstance.getCenter();
+                        var z = mapInstance.getZoom();
+                        mapInstance.setView(c, z);
+                    }
+                });
+            } else if (typeof mapInstance !== 'undefined' && mapInstance) {
                 function fullscreenMapResize() {
                     mapInstance.invalidateSize();
                     var c = mapInstance.getCenter();
                     var z = mapInstance.getZoom();
                     mapInstance.setView(c, z);
+                    if (typeof mapMarkers !== 'undefined' && mapMarkers.length) {
+                        mapMarkers.forEach(function(m) {
+                            if (m.marker && m.marker.getLatLng) {
+                                var ll = m.marker.getLatLng();
+                                if (ll) m.marker.setLatLng(ll);
+                            }
+                        });
+                    }
                 }
                 setTimeout(fullscreenMapResize, 100);
                 setTimeout(fullscreenMapResize, 350);
+                setTimeout(fullscreenMapResize, 600);
             }
         }
     });
@@ -6218,7 +6976,15 @@ function initMapFullscreenDelegation() {
         const mapCanvasContainer = document.getElementById('map-canvas-container');
         if (mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
             e.preventDefault();
+            var ov = document.getElementById('map-fullscreen-overlay');
+            if (ov) { ov.classList.remove('visible'); ov.setAttribute('aria-hidden', 'true'); }
+            var legendEl = document.getElementById('map-legend');
+            if (legendEl && legendEl.parentNode && legendEl.parentNode.id === 'map-fullscreen-legend-slot') {
+                mapCanvasContainer.appendChild(legendEl);
+            }
             mapCanvasContainer.classList.remove('is-fullscreen');
+            var dp = document.getElementById('map-fullscreen-deals-panel');
+            if (dp) dp.classList.remove('open');
             const fsExitBtn = document.getElementById('map-fullscreen-exit-btn');
             const fsBtn = document.getElementById('map-fullscreen-btn');
             if (fsExitBtn) fsExitBtn.style.display = 'none';
@@ -7129,6 +7895,9 @@ function showDealPipelineView() {
     if (filterControls) filterControls.style.display = 'none';
     if (sortControls) sortControls.style.display = 'none';
     
+    const visibleCountBadge = document.getElementById('visible-deal-count-badge');
+    if (visibleCountBadge) visibleCountBadge.style.display = 'none';
+
     // Show deal pipeline view (full-viewport overlay – single scroll, no nested scrollers)
     const dealPipelineView = document.getElementById('deal-pipeline-view');
     if (dealPipelineView) {

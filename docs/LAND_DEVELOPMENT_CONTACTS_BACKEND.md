@@ -50,6 +50,7 @@ One row per contact that has land-dev attributes. All land-dev–only fields liv
 | State                    | string      | No       | e.g. 2-letter |
 | DateOfContact            | date        | No       | When they were first contacted |
 | FollowUpTimeframeDays    | int         | No       | e.g. 180 for “follow up in 6 months” |
+| ReminderToEmail         | string      | No       | Email to notify when follow-up is due (dashboard user). Reminder says "You need to reach out to [contact] — it's been X days." Sent to this address, not to the contact. |
 | CreatedAt                | datetime    | No       | |
 | ModifiedAt               | datetime    | No       | |
 
@@ -64,7 +65,7 @@ Example merged item:
 
 - **ContactId** (required) – core.contacts.Id; use this in URLs and for send-reminder.
 - **Name, Email, PhoneNumber** – from core.contacts (map your core column names as needed).
-- **OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays** – from land-dev extension (null if no extension row).
+- **OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, ReminderToEmail** – from land-dev extension (null if no extension row).
 - **NextFollowUpDate, UpcomingFollowUp** – computed as above.
 
 ---
@@ -93,7 +94,7 @@ Use **ContactId** (core.contacts.Id) as the **id** in list items and in URL path
 | q             | string  | Search in Name, Email, Notes |
 
 **Response:**  
-`{ success: true, data: [ { ContactId, Name, Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, NextFollowUpDate, UpcomingFollowUp, CreatedAt, ModifiedAt }, ... ] }`
+`{ success: true, data: [ { ContactId, Name, Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, ReminderToEmail, NextFollowUpDate, UpcomingFollowUp, CreatedAt, ModifiedAt }, ... ] }`
 
 - **ContactId** = core.contacts.Id (use this for get/update/delete/send-reminder).
 - Include **NextFollowUpDate** and **UpcomingFollowUp** when possible.
@@ -107,7 +108,7 @@ Use **ContactId** (core.contacts.Id) as the **id** in list items and in URL path
 **id** = ContactId (core.contacts.Id). Return that core contact merged with its land-dev extension row (if any).
 
 **Response:**  
-`{ success: true, data: { ContactId, Name, Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, NextFollowUpDate, UpcomingFollowUp, CreatedAt, ModifiedAt } }`  
+`{ success: true, data: { ContactId, Name, Email, PhoneNumber, OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, ReminderToEmail, NextFollowUpDate, UpcomingFollowUp, CreatedAt, ModifiedAt } }`  
 **Errors:** 404 if core contact not found.
 
 ---
@@ -117,12 +118,12 @@ Use **ContactId** (core.contacts.Id) as the **id** in list items and in URL path
 **POST** `/api/land-development/contacts`
 
 **Body:**  
-`{ "Name": "Jane Smith", "Email": "jane@example.com", "PhoneNumber": "555-1234", "OfficeAddress": "123 Main St", "Type": "Broker", "Notes": "...", "City": "Baton Rouge", "State": "LA", "DateOfContact": "2025-01-15", "FollowUpTimeframeDays": 180 }`
+`{ "Name": "Jane Smith", "Email": "jane@example.com", "PhoneNumber": "555-1234", "OfficeAddress": "123 Main St", "Type": "Broker", "Notes": "...", "City": "Baton Rouge", "State": "LA", "DateOfContact": "2025-01-15", "FollowUpTimeframeDays": 180, "ReminderToEmail": "you@company.com" }`
 
 - **Name** required (for core); all others optional.
 - **Backend:**  
   1. Create a row in **core.contacts** with only the fields core accepts (e.g. Name, Email, Phone / PhoneNumber), and ensure the new contact is stored as an **individual** (not an entity)—e.g. set `ContactType = 'Individual'` or equivalent.  
-  2. Create a row in the **land-dev extension** with the new core ContactId and the land-dev fields (OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays).  
+  2. Create a row in the **land-dev extension** with the new core ContactId and the land-dev fields (OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, ReminderToEmail).  
 - **Type** (land-dev) should be one of: `Land Owner`, `Developer`, `Broker`.
 
 **Response:**  
@@ -137,7 +138,7 @@ Use **ContactId** (core.contacts.Id) as the **id** in list items and in URL path
 **id** = ContactId (core.contacts.Id).  
 **Body:** Same fields as create; only send fields to update.  
 - Update **core.contacts** for core fields (Name, Email, PhoneNumber).  
-- Create or update the **land-dev extension** row for this ContactId with land-dev fields (OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays).
+- Create or update the **land-dev extension** row for this ContactId with land-dev fields (OfficeAddress, Type, Notes, City, State, DateOfContact, FollowUpTimeframeDays, ReminderToEmail).
 
 **Response:**  
 `{ success: true, data: { ... } }` (merged shape).  
@@ -178,6 +179,40 @@ or both:
 **Response:**  
 `{ success: true, message: "Reminder sent" }`  
 **Errors:** 400 if neither contactId nor email provided, or contact not found; 500 on send failure.
+
+**Frontend behavior:** The UI lets users search contacts, select one or multiple contacts, and/or enter one ad-hoc email. The frontend currently sends **one request per recipient** (repeated calls to this endpoint with `contactId` or `email` + optional `message`). No backend change is required for multi-select.
+
+---
+
+#### Optional: Batch send-reminder (same endpoint)
+
+If you want to reduce round-trips, you may accept a **batch** body and send to all recipients in one request:
+
+**Body (alternative):**  
+`{ "contactIds": [5, 12, 3], "email": "other@example.com", "message": "Optional custom message" }`
+
+- **contactIds** – array of core ContactIds; send one reminder per contact (to each contact’s Email).
+- **email** – optional; one ad-hoc recipient not in the list.
+- **message** – optional; same message for all.
+
+**Response (batch):**  
+`{ success: true, sent: 4, failed: [] }`  
+or partial failure:  
+`{ success: true, sent: 3, failed: [ { contactId: 12, error: "No email on file" } ] }`
+
+If you implement batch, the api-client can expose e.g. `sendLandDevelopmentContactReminder(payload)` where `payload.contactIds` (array) is supported in addition to `payload.contactId` (single). The frontend can be updated to use batch when available.
+
+---
+
+### Scheduled reminders (when follow-up date is reached)
+
+When **NextFollowUpDate** is reached (e.g. via a daily cron or scheduler), the backend should send a **reminder to the dashboard user**, not to the contact. The recipient is **ReminderToEmail** (stored per contact in the land-dev extension). If **ReminderToEmail** is empty, skip sending for that contact.
+
+- **Recipient:** The value of **ReminderToEmail** (the email the user configured in the Edit contact screen: "Send reminder to (email)").
+- **Content:** The email should say something like: "You need to reach out to [Contact Name] — it's been X days" or "Follow-up was due on [date]. Reach out to [Contact Name]." Optionally include contact Email/Phone or a link to the contact in the dashboard.
+- **Do not** send this reminder to the contact's own Email; it is a reminder *for* the user to take action.
+
+Implement a job that runs on a schedule (e.g. daily), finds contacts where `NextFollowUpDate` is today (or within the last N days and not yet notified), and for each contact with a non-empty **ReminderToEmail**, sends one email to **ReminderToEmail** with the above content. Track sent reminders if you need to avoid duplicate sends.
 
 ---
 
@@ -253,7 +288,7 @@ Replace `{{contactName}}` and `{{message}}` with escaped values. Use TLS for del
 |-------------------|--------|
 | Individuals only | From **core.contacts**; list and all operations are **only for individuals** (people). **Exclude entities** (companies/organizations) from list/get; create only as individual. |
 | **List = all individuals** | List endpoint must return **every** individual in core.contacts (LEFT JOIN extension). Do not return only contacts that have a land-dev row—the UI must populate with all individuals. |
-| Land-dev details  | Stored in an **extension table** linked by **ContactId** (FK to core.contacts): Type, OfficeAddress, Notes, City, State, DateOfContact, FollowUpTimeframeDays. |
+| Land-dev details  | Stored in an **extension table** linked by **ContactId** (FK to core.contacts): Type, OfficeAddress, Notes, City, State, DateOfContact, FollowUpTimeframeDays, ReminderToEmail. |
 | List/Get          | Return merged shape (core + extension); use **ContactId** as id; include NextFollowUpDate and UpcomingFollowUp. |
 | Create            | Insert into **core.contacts** (core fields only), then insert extension row; return merged with **ContactId**. |
 | Update            | Update core.contacts and/or extension row by **ContactId**. |

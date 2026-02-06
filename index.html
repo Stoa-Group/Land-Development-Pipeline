@@ -3,6 +3,7 @@
     <link rel="stylesheet" href="app.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <!-- ExcelJS for styled Excel export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
@@ -162,6 +163,9 @@
         </div>
       </main>
     </div>
+
+    <!-- Visible deal count (bottom-right, main dashboard only) -->
+    <div class="visible-deal-count-badge" id="visible-deal-count-badge" aria-live="polite">0 deals</div>
 
     <!-- Login Modal -->
     <div class="modal-overlay" id="login-modal" style="display: none;">
@@ -412,9 +416,9 @@
       </div>
     </div>
 
-    <!-- Leaflet.js for maps -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet.js for maps (jsDelivr for CSP compatibility with Domo) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <!-- Configuration (load before API client) -->
     <script src="config.js"></script>
