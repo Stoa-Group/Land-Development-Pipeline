@@ -681,7 +681,7 @@
 }
 
 /**
- * Delete a loan (REQUIRES AUTHENTICATION)
+ * Delete a loan (REQUIRES AUTHENTICATION). Backend cascades: removes guarantees, covenants, participations, etc., then the loan.
  * @param {number} id - Loan ID
  */
   async function deleteLoan(id) {
@@ -693,7 +693,7 @@
  * Target and source must be different and on the same project. REQUIRES AUTHENTICATION.
  * @param {number} targetLoanId - New loan ID (destination)
  * @param {number} sourceLoanId - Existing loan ID (source)
- * @param {object} options - { copyCovenants: boolean, copyGuarantees: boolean, copyEquityCommitments: boolean }
+ * @param {object} options - { copyCovenants?, copyGuarantees?, copyEquityCommitments? } (truthy: true, 1, or "true")
  * @returns {Promise<object>} { success: true, data: { copyCovenants: number, copyGuarantees: number, copyEquityCommitments: number } }
  */
   async function copyLoanAttributes(targetLoanId, sourceLoanId, options) {
