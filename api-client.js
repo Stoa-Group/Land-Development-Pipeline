@@ -1272,9 +1272,9 @@
 }
 
 /**
- * Update the Asana task's Start Date custom field only (admin remedy: override Asana with database date or fill when empty).
+ * Update the Asana task's Start Date custom field (admin remedy: override Asana with database date or fill when empty).
  * Backend updates only the "Start Date" custom field; Due Date (due_on) is never changed. Requires ASANA_START_DATE_CUSTOM_FIELD_GID (returns 503 if missing).
- * PUT /api/asana/tasks/:taskGid/due-on
+ * PUT /api/asana/tasks/:taskGid/due-on (backend interprets as "set Start Date" when configured).
  * @param {string} taskGid - Asana task GID
  * @param {string} dateStr - Date string YYYY-MM-DD (e.g. database start date)
  * @returns {Promise<object>} { success: true, data } or { success: false, error: { message } }
