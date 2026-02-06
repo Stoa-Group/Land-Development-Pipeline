@@ -211,10 +211,12 @@
   return apiRequest(`/api/core/projects/${id}`);
 }
 
+  /** Create project. data may include LTCOriginal (decimal, e.g. 0.65 for 65%). */
   async function createProject(data) {
   return apiRequest('/api/core/projects', 'POST', data);
 }
 
+  /** Update project. data may include LTCOriginal (decimal or null). */
   async function updateProject(id, data) {
   return apiRequest(`/api/core/projects/${id}`, 'PUT', data);
 }
@@ -517,6 +519,14 @@
 
   async function getLoansByProject(projectId) {
   return apiRequest(`/api/banking/loans/project/${projectId}`);
+}
+
+/**
+ * Get entity-projects (Option B: projects with ProductType = 'Entity'). Use getLoansByProject(entityProjectId) for entity loans.
+ * @returns {Promise<object>} { success: true, data: Array<project> }
+ */
+  async function getBankingEntities() {
+  return apiRequest('/api/banking/entities');
 }
 
 /**
@@ -886,7 +896,7 @@
 
 /**
  * Create a new participation (REQUIRES AUTHENTICATION)
- * @param {object} data - { ProjectId, BankId, FinancingType?, LoanId?, ParticipationPercent?, ExposureAmount?, PaidOff?, Notes? }
+ * @param {object} data - { ProjectId, BankId, FinancingType?, LoanId?, ParticipationPercent?, ExposureAmount?, PaidOff?, IsLead?, Notes? }
  * @param {string} [data.FinancingType] - 'Construction' or 'Permanent' (defaults to 'Construction' if not provided)
  * @returns {Promise<object>} { success: true, data: {...} }
  * @example
@@ -915,7 +925,7 @@
  * Create participation by Project ID (REQUIRES AUTHENTICATION)
  * Automatically finds the loan for the project based on FinancingType
  * @param {number} projectId - Project ID
- * @param {object} data - { BankId, FinancingType?, ParticipationPercent?, ExposureAmount?, PaidOff?, Notes? }
+ * @param {object} data - { BankId, FinancingType?, ParticipationPercent?, ExposureAmount?, PaidOff?, IsLead?, Notes? }
  * @param {string} [data.FinancingType] - 'Construction' or 'Permanent' (defaults to 'Construction' if not provided)
  * @returns {Promise<object>} { success: true, data: {...} }
  * @example
@@ -2582,6 +2592,7 @@
   API.getAllLoans = getAllLoans;
   API.getLoanById = getLoanById;
   API.getLoansByProject = getLoansByProject;
+  API.getBankingEntities = getBankingEntities;
   API.getLoanParticipationSummary = getLoanParticipationSummary;
   API.createLoan = createLoan;
   API.updateLoan = updateLoan;
