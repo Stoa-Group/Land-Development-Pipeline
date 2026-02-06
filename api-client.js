@@ -1248,6 +1248,16 @@
   return apiRequest(endpoint);
 }
 
+/**
+ * Update an Asana task's due date (admin remedy: override Asana with database date). PUT /api/asana/tasks/:taskGid/due-on
+ * @param {string} taskGid - Asana task GID
+ * @param {string} dueOn - Date string YYYY-MM-DD
+ * @returns {Promise<object>} { success: true, data: { gid, due_on } } or { success: false, error: { message } }
+ */
+  async function updateAsanaTaskDueDate(taskGid, dueOn) {
+  return apiRequest(`/api/asana/tasks/${encodeURIComponent(taskGid)}/due-on`, 'PUT', { due_on: dueOn });
+}
+
 // LIQUIDITY REQUIREMENTS
 /**
  * Get all liquidity requirements
@@ -2670,6 +2680,7 @@
   API.getUpcomingDatesReminderSettings = getUpcomingDatesReminderSettings;
   API.saveUpcomingDatesReminderSettings = saveUpcomingDatesReminderSettings;
   API.getAsanaUpcomingTasks = getAsanaUpcomingTasks;
+  API.updateAsanaTaskDueDate = updateAsanaTaskDueDate;
   
   // Banking - Liquidity Requirements
   API.getAllLiquidityRequirements = getAllLiquidityRequirements;
