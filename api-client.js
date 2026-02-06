@@ -522,8 +522,8 @@
 }
 
 /**
- * Get entity-projects (Option B: projects with ProductType = 'Entity'). Use getLoansByProject(entityProjectId) for entity loans.
- * @returns {Promise<object>} { success: true, data: Array<project> }
+ * Get entities for Misc Loans: entity-projects (ProductType = 'Entity') and equity partners (PartnerType = 'Entity').
+ * @returns {Promise<object>} { success: true, data: { projects: Array<project>, entities: Array<{ EquityPartnerId, PartnerName, PartnerType, ... }> } }
  */
   async function getBankingEntities() {
   return apiRequest('/api/banking/entities');
@@ -689,12 +689,12 @@
 }
 
 /**
- * Copy covenants, guarantees, and/or equity commitments from one loan to another (Loan Creation Wizard).
+ * Copy covenants and/or guarantees from one loan to another (Loan Creation Wizard). Equity commitments are deal-wide and are not copied.
  * Target and source must be different and on the same project. REQUIRES AUTHENTICATION.
  * @param {number} targetLoanId - New loan ID (destination)
  * @param {number} sourceLoanId - Existing loan ID (source)
- * @param {object} options - { copyCovenants?, copyGuarantees?, copyEquityCommitments? } (truthy: true, 1, or "true")
- * @returns {Promise<object>} { success: true, data: { copyCovenants: number, copyGuarantees: number, copyEquityCommitments: number } }
+ * @param {object} options - { copyCovenants?: boolean, copyGuarantees?: boolean } (truthy: true, 1, or "true")
+ * @returns {Promise<object>} { success: true, data: { copyCovenants: number, copyGuarantees: number } }
  */
   async function copyLoanAttributes(targetLoanId, sourceLoanId, options) {
   return apiRequest(`/api/banking/loans/${targetLoanId}/copy-from/${sourceLoanId}`, 'POST', options || {});
@@ -1376,9 +1376,10 @@
 }
 
 /**
- * Create a new equity commitment (REQUIRES AUTHENTICATION)
- * @param {object} data - { ProjectId, EquityPartnerId?, EquityType?, LeadPrefGroup?, FundingDate?, Amount?, InterestRate?, AnnualMonthly?, BackEndKicker?, LastDollar?, Notes?, RelatedPartyIds?: number[] }
+ * Create a new equity commitment (REQUIRES AUTHENTICATION). Equity commitments are deal-wide (per project).
+ * @param {object} data - { ProjectId, EquityPartnerId?, EquityType?, LeadPrefGroup?, FundingDate?, Amount?, InterestRate?, AnnualMonthly?, BackEndKicker?, LastDollar?, Notes?, IsPaidOff?, RelatedPartyIds?: number[] }
  * @param {string} [data.EquityType] - Type of equity: 'Preferred Equity', 'Common Equity', 'Profits Interest', or 'Stoa Loan'
+ * @param {boolean} [data.IsPaidOff] - Whether the commitment is paid off (deal-wide)
  * @param {number[]} [data.RelatedPartyIds] - Array of EquityPartnerIds for related parties (investors involved but not the lead)
  * @returns {Promise<object>} { success: true, data: { EquityCommitmentId, RelatedParties: [...], ... } }
  * @note Related parties are only allowed for Entity partners. Individual partners cannot have related parties.
@@ -1398,7 +1399,8 @@
 /**
  * Update an equity commitment (REQUIRES AUTHENTICATION)
  * @param {number} id - Equity Commitment ID
- * @param {object} data - Updated equity commitment data { ProjectId?, EquityPartnerId?, EquityType?, LeadPrefGroup?, FundingDate?, Amount?, InterestRate?, AnnualMonthly?, BackEndKicker?, LastDollar?, Notes?, RelatedPartyIds?: number[] }
+ * @param {object} data - Updated equity commitment data { ProjectId?, EquityPartnerId?, EquityType?, LeadPrefGroup?, FundingDate?, Amount?, InterestRate?, AnnualMonthly?, BackEndKicker?, LastDollar?, Notes?, IsPaidOff?, RelatedPartyIds?: number[] }
+ * @param {boolean} [data.IsPaidOff] - Whether the commitment is paid off
  * @param {string} [data.EquityType] - Type of equity: 'Preferred Equity', 'Common Equity', 'Profits Interest', or 'Stoa Loan'
  * @param {number[]} [data.RelatedPartyIds] - Array of EquityPartnerIds for related parties (pass empty array to clear all)
  * @returns {Promise<object>} { success: true, data: { EquityCommitmentId, RelatedParties: [...], ... } }
