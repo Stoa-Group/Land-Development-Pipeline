@@ -1290,6 +1290,18 @@
   return updateAsanaTaskStartDate(taskGid, dateStr);
 }
 
+/**
+ * Update an Asana task custom field (admin remedy: database → Asana). Backend maps field keys to env GIDs.
+ * PUT /api/asana/tasks/:taskGid/custom-field
+ * @param {string} taskGid - Asana task GID
+ * @param {string} fieldKey - One of: unit_count, bank, location, priority, stage, product_type, precon_manager
+ * @param {string|number} value - Value to set (string, number, or YYYY-MM-DD for date; enum fields use option GID)
+ * @returns {Promise<object>} { success: true, data } or { success: false, error: { message } }
+ */
+  async function updateAsanaTaskCustomField(taskGid, fieldKey, value) {
+  return apiRequest(`/api/asana/tasks/${encodeURIComponent(taskGid)}/custom-field`, 'PUT', { field: fieldKey, value: value == null ? '' : value });
+}
+
 // LIQUIDITY REQUIREMENTS
 /**
  * Get all liquidity requirements
@@ -2714,6 +2726,7 @@
   API.getAsanaUpcomingTasks = getAsanaUpcomingTasks;
   API.updateAsanaTaskStartDate = updateAsanaTaskStartDate;
   API.updateAsanaTaskDueDate = updateAsanaTaskDueDate;
+  API.updateAsanaTaskCustomField = updateAsanaTaskCustomField;
   
   // Banking - Liquidity Requirements
   API.getAllLiquidityRequirements = getAllLiquidityRequirements;
