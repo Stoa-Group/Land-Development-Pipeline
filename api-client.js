@@ -1272,6 +1272,20 @@
 }
 
 /**
+ * List all custom fields for an Asana project (GID, name, type, enum_options). Use to find GIDs for env (e.g. precon manager, stage, product type).
+ * GET /api/asana/custom-fields
+ * @param {object} [opts] - Optional: { project?: string (project GID; omit for default Deal Pipeline project) }
+ * @returns {Promise<object>} { success: true, data: { projectGid, customFields: [ { gid, name, type, enum_options?: [{ gid, name }] } ] } } or { success: false, error }
+ */
+  async function getAsanaProjectCustomFields(opts) {
+  const params = new URLSearchParams();
+  if (opts?.project) params.set('project', opts.project);
+  const qs = params.toString();
+  const endpoint = '/api/asana/custom-fields' + (qs ? '?' + qs : '');
+  return apiRequest(endpoint);
+}
+
+/**
  * Update the Asana task's Start Date custom field (admin remedy: override Asana with database date or fill when empty).
  * Backend updates only the "Start Date" custom field; Due Date (due_on) is never changed. Requires ASANA_START_DATE_CUSTOM_FIELD_GID (returns 503 if missing).
  * PUT /api/asana/tasks/:taskGid/due-on (backend interprets as "set Start Date" when configured).
@@ -2724,6 +2738,7 @@
   API.getUpcomingDatesReminderSettings = getUpcomingDatesReminderSettings;
   API.saveUpcomingDatesReminderSettings = saveUpcomingDatesReminderSettings;
   API.getAsanaUpcomingTasks = getAsanaUpcomingTasks;
+  API.getAsanaProjectCustomFields = getAsanaProjectCustomFields;
   API.updateAsanaTaskStartDate = updateAsanaTaskStartDate;
   API.updateAsanaTaskDueDate = updateAsanaTaskDueDate;
   API.updateAsanaTaskCustomField = updateAsanaTaskCustomField;
