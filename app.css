@@ -1985,8 +1985,7 @@ body.deal-pipeline-open {
     right: 0;
     bottom: 0;
     width: 100vw;
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
     z-index: 10000;
     margin: 0;
     border-radius: 0;
@@ -3645,10 +3644,37 @@ body.map-fullscreen-active {
 .deal-detail-asana-view-link:hover {
     text-decoration: none;
 }
+.deal-detail-asana-other-fields {
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+}
+.deal-detail-asana-field-row {
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+.deal-detail-asana-field-row .deal-detail-btn {
+    margin-left: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+}
 .deal-detail-asana-view-only {
     margin: 0;
     font-size: 13px;
     color: var(--text-secondary);
+}
+
+.deal-detail-asana-other-fields {
+    border-top: 1px solid var(--border-color);
+    padding-top: 12px;
+}
+.deal-detail-asana-field-row {
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+.deal-detail-asana-field-row .deal-detail-btn {
+    margin-left: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
 }
 
 .deal-detail-section h3 {

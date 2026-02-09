@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test API: The Flats at Greenville – All Fields</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+        h1 { font-size: 1.25rem; }
+        pre { background: #f5f5f5; padding: 12px; overflow: auto; font-size: 12px; border-radius: 6px; }
+        .endpoint { font-family: monospace; background: #eee; padding: 4px 8px; border-radius: 4px; margin: 8px 0; }
+        button { padding: 8px 16px; cursor: pointer; margin-right: 8px; }
+        .error { color: #c00; }
+        .meta { color: #666; font-size: 14px; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <h1>Test API: The Flats at Greenville – All Fields</h1>
+    <p class="meta">Calls <code>GET /api/asana/upcoming-tasks?daysAhead=365</code>, finds the task matching "The Flats at Greenville", and displays all task and project fields.</p>
+    <div class="endpoint" id="url"></div>
+    <button id="run">Fetch and show task</button>
+    <div id="out" style="margin-top: 16px;"></div>
+
+    <script>
+        (function() {
+            var base = typeof window !== 'undefined' && window.API_BASE_URL ? window.API_BASE_URL : 'https://stoagroupdb-ddre.onrender.com';
+            var endpoint = base + '/api/asana/upcoming-tasks?daysAhead=365';
+            document.getElementById('url').textContent = endpoint;
+
+            function matchDeal(taskName, projectName, dealName) {
+                var n = function(s) { return String(s || '').toLowerCase().trim(); };
+                var t = n(taskName);
+                var p = n(projectName);
+                var d = n(dealName);
+                if (t === d || p === d) return true;
+                if (d.indexOf(t) !== -1 || t.indexOf(d) !== -1) return true;
+                if (d.indexOf(p) !== -1 || p.indexOf(d) !== -1) return true;
+                return false;
+            }
+
+            document.getElementById('run').onclick = function() {
+                var out = document.getElementById('out');
+                out.innerHTML = 'Loading…';
+                fetch(endpoint, { method: 'GET', headers: { Accept: 'application/json' } })
+                    .then(function(r) { return r.json(); })
+                    .then(function(res) {
+                        if (!res || !res.success || !Array.isArray(res.data)) {
+                            out.innerHTML = '<p class="error">API returned no data or success: false.</p><pre>' + JSON.stringify(res, null, 2) + '</pre>';
+                            return;
+                        }
+                        var dealName = 'The Flats at Greenville';
+                        var found = null;
+                        var foundProject = null;
+                        for (var i = 0; i < res.data.length; i++) {
+                            var project = res.data[i];
+                            var tasks = project.tasks || [];
+                            for (var j = 0; j < tasks.length; j++) {
+                                var task = tasks[j];
+                                var taskName = (task.name || '').trim();
+                                var projectName = (project.projectName || project.name || '').trim();
+                                if (matchDeal(taskName, projectName, dealName)) {
+                                    found = task;
+                                    foundProject = project;
+                                    break;
+                                }
+                            }
+                            if (found) break;
+                        }
+                        if (!found) {
+                            out.innerHTML = '<p class="error">No task found matching "' + dealName + '".</p><p>Projects/tasks in response:</p><pre>' + JSON.stringify(res.data.map(function(p) {
+                                return { projectName: p.projectName || p.name, projectGid: p.projectGid, taskNames: (p.tasks || []).map(function(t) { return t.name; }) };
+                            }), null, 2) + '</pre>';
+                            return;
+                        }
+                        var allFields = {
+                            _meta: { dealName: dealName, projectName: foundProject.projectName || foundProject.name, projectGid: foundProject.projectGid },
+                            task: found,
+                            project: foundProject
+                        };
+                        out.innerHTML = '<p><strong>Task "' + (found.name || '') + '"</strong> – all task fields (raw):</p><pre>' + JSON.stringify(allFields, null, 2) + '</pre>';
+                    })
+                    .catch(function(e) {
+                        out.innerHTML = '<p class="error">Request failed: ' + e.message + '</p>';
+                    });
+            };
+        })();
+    </script>
+</body>
+</html>

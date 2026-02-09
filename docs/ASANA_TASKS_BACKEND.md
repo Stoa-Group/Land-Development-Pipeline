@@ -73,6 +73,7 @@ The backend must call Asana with a **Personal Access Token (PAT)** or OAuth toke
 - **due_on:** YYYY-MM-DD string (Asana format), or **null** when the task has no due date. Used for display/filtering only; **not** used as "Asana start date" in the deal-detail comparison.
 - **start_date:** YYYY-MM-DD string from the task’s **Asana custom field "Start Date"**, or **null** when that field is empty. The frontend uses **only** this for "Asana start date" (match vs discrepancy and "Override database date with Asana date"). If `start_date` is null, the app shows "Asana has no start date" and offers to fill from the database, regardless of `due_on`.
 - **permalink_url:** So the frontend can show "Open in Asana" / "View deal in Asana" and open the task in a new tab.
+- **Optional (for “Other fields” sync UI):** When available, the frontend compares database vs Asana for: **unit_count** (number or string), **stage**, **bank**, **product_type**, **location**, **precon_manager** (strings). If the API includes these on each task (from the corresponding Asana custom fields), the deal popup shows match/difference and an “Override Asana with database value” button for each.
 
 If the backend cannot reach Asana (token missing, network error, rate limit), return:
 
@@ -116,3 +117,8 @@ When the deal detail shows a start-date discrepancy, admins can correct it. The 
 2. **Override database date with Asana date**  
    - The frontend uses the existing `API.updateDealPipeline(dealPipelineId, { StartDate: asanaDate })` where `asanaDate` is the task’s **start_date** (custom field) string (`YYYY-MM-DD`), not the task’s due date.  
    - Backend: update the deal pipeline record’s Start Date (existing update endpoint).
+
+3. **Override other Asana custom fields with database values** (one direction: database → Asana only)  
+   - The frontend calls: `API.updateAsanaTaskCustomField(taskGid, fieldKey, value)` for: `unit_count`, `stage`, `bank`, `product_type`, `location`, `precon_manager`.  
+   - Suggested backend: `PUT /api/asana/tasks/:taskGid/custom-field` with body `{ field: string, value: string|number }`. Map `field` to the Asana custom field GID (e.g. from env or from `ASANA_CUSTOM_FIELD_GIDS` in the frontend), then PATCH the task’s `custom_fields` with that GID and the value.  
+   - The deal popup shows DB vs Asana for each of these fields and, for admins, an “Override Asana with database value” button only (no Asana → database).

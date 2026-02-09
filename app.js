@@ -5325,6 +5325,59 @@ function clearFilters() {
 // Make clearFilters globally accessible
 window.clearFilters = clearFilters;
 
+// Asana sync: other custom fields (Unit Count, Stage, Bank, Product Type, Location, Pre-Con Manager). One-direction: DB → Asana only.
+var ASANA_OTHER_FIELDS_CONFIG = [
+    { key: 'unit_count', label: 'Unit Count', getDb: function(d) { var v = d['Unit Count'] || d.unitCount; return v != null && v !== '' ? String(v).trim() : ''; }, getAsana: function(t) { var v = t.unit_count != null ? t.unit_count : (t.custom_fields && t.custom_fields.unit_count != null ? t.custom_fields.unit_count : null); return v != null ? String(v).trim() : ''; }, same: function(a, b) { var na = parseInt(a, 10), nb = parseInt(b, 10); if (!isNaN(na) && !isNaN(nb)) return na === nb; return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
+    { key: 'stage', label: 'Stage', getDb: function(d) { return (normalizeStage(d.Stage || d.stage) || '').trim(); }, getAsana: function(t) { var v = t.stage != null ? t.stage : (t.custom_fields && t.custom_fields.stage != null ? t.custom_fields.stage : null); return (v || '').toString().trim(); }, same: function(a, b) { return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
+    { key: 'bank', label: 'Bank', getDb: function(d) { return (d.Bank || d.bank || '').toString().trim(); }, getAsana: function(t) { var v = t.bank != null ? t.bank : (t.custom_fields && t.custom_fields.bank != null ? t.custom_fields.bank : null); return (v || '').toString().trim(); }, same: function(a, b) { return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
+    { key: 'product_type', label: 'Product Type', getDb: function(d) { return (getDealProductType(d) || (d['Product Type'] || d.productType) || '').toString().trim(); }, getAsana: function(t) { var v = t.product_type != null ? t.product_type : (t.custom_fields && t.custom_fields.product_type != null ? t.custom_fields.product_type : null); return (v || '').toString().trim(); }, same: function(a, b) { return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
+    { key: 'location', label: 'Location', getDb: function(d) { return (getDealLocation(d) || d.Location || d.location || '').toString().trim(); }, getAsana: function(t) { var v = t.location != null ? t.location : (t.custom_fields && t.custom_fields.location != null ? t.custom_fields.location : null); return (v || '').toString().trim(); }, same: function(a, b) { return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
+    { key: 'precon_manager', label: 'Pre-Con Manager', getDb: function(d) { return (d['Pre-Con'] || d.preCon || d['Pre-Con Manager'] || '').toString().trim(); }, getAsana: function(t) { var v = t.precon_manager != null ? t.precon_manager : (t.custom_fields && t.custom_fields.precon_manager != null ? t.custom_fields.precon_manager : null); return (v || '').toString().trim(); }, same: function(a, b) { return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
+];
+
+function buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmin) {
+    var container = modal && modal.querySelector('#deal-detail-asana-other-fields-content');
+    if (!container || !matchedTask || typeof API === 'undefined' || !API.updateAsanaTaskCustomField) return;
+    var taskGid = (matchedTask.gid || '').replace(/"/g, '&quot;');
+    var rows = [];
+    for (var i = 0; i < ASANA_OTHER_FIELDS_CONFIG.length; i++) {
+        var cfg = ASANA_OTHER_FIELDS_CONFIG[i];
+        var dbVal = cfg.getDb(deal);
+        var asanaVal = cfg.getAsana(matchedTask);
+        var displayDb = (dbVal || '—').replace(/</g, '&lt;');
+        var displayAsana = (asanaVal || '—').replace(/</g, '&lt;');
+        var isSame = cfg.same(dbVal, asanaVal);
+        if (isSame) {
+            rows.push('<div class="deal-detail-asana-field-row"><strong>' + cfg.label + ':</strong> Database and Asana match (<span>' + displayDb + '</span>).</div>');
+        } else {
+            rows.push('<div class="deal-detail-asana-field-row">' +
+                '<strong>' + cfg.label + ':</strong> Database: <span>' + displayDb + '</span>; Asana: <span>' + displayAsana + '</span>.' +
+                (isAdmin ? ' <button type="button" class="deal-detail-btn deal-detail-asana-override-field" data-task-gid="' + taskGid + '" data-field-key="' + (cfg.key || '').replace(/"/g, '&quot;') + '" data-db-value="' + (dbVal || '').replace(/"/g, '&quot;') + '">Override Asana with database value</button>' : '') +
+                '</div>');
+        }
+    }
+    container.innerHTML = rows.length ? '<p class="deal-detail-asana-remedies" style="margin-bottom: 8px;">Other fields (database → Asana only):</p>' + rows.join('') : '';
+    if (isAdmin) {
+        modal.querySelectorAll('.deal-detail-asana-override-field').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var gid = this.getAttribute('data-task-gid');
+                var fieldKey = this.getAttribute('data-field-key');
+                var dbValue = this.getAttribute('data-db-value');
+                if (!gid || !fieldKey) return;
+                btn.disabled = true;
+                API.updateAsanaTaskCustomField(gid, fieldKey, dbValue != null ? dbValue : '').then(function() {
+                    var label = fieldKey;
+                    for (var k = 0; k < ASANA_OTHER_FIELDS_CONFIG.length; k++) { if (ASANA_OTHER_FIELDS_CONFIG[k].key === fieldKey) { label = ASANA_OTHER_FIELDS_CONFIG[k].label; break; } }
+                    btn.outerHTML = '<span class="deal-detail-asana-discrepancy-msg">Asana ' + label + ' updated to match database.</span>';
+                }).catch(function(e) {
+                    btn.disabled = false;
+                    if (typeof console !== 'undefined') console.error(e);
+                });
+            });
+        });
+    }
+}
+
 // Load Asana start-date discrepancy for deal detail (match by task name to deal name; show and offer remedies if admin)
 function loadDealDetailAsanaDiscrepancy(modal, deal) {
     const wrap = modal && modal.querySelector('#deal-detail-asana-discrepancy-wrap');
@@ -5400,6 +5453,7 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
                     });
                 });
             }
+            buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmin);
             return;
         }
 
@@ -5503,6 +5557,7 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
                 });
             });
         }
+        buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmin);
     }).catch(function() {});
 }
 
@@ -5746,8 +5801,9 @@ function showDealDetail(deal) {
                         </div>
                         ` : ''}
                 <div class="deal-detail-section deal-detail-asana-discrepancy-section" id="deal-detail-asana-discrepancy-wrap" style="display: none;">
-                    <h3>Asana start date</h3>
+                    <h3>Asana sync</h3>
                     <div id="deal-detail-asana-discrepancy-content"></div>
+                    <div id="deal-detail-asana-other-fields-content" class="deal-detail-asana-other-fields" style="margin-top: 16px;"></div>
                 </div>
                 <div class="deal-detail-section deal-detail-files-section" id="deal-detail-files-section" data-deal-pipeline-id="${deal.DealPipelineId || deal._original?.DealPipelineId || ''}">
                     <h3>Files</h3>
