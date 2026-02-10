@@ -112,10 +112,11 @@
     }
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-    const result = await response.json();
+    const text = await response.text();
+    const result = text ? (function () { try { return JSON.parse(text); } catch (_) { return {}; } })() : {};
 
     if (!response.ok) {
-      throw new Error(result.error?.message || `API Error: ${response.status}`);
+      throw new Error(result.error?.message || result.message || `API Error: ${response.status}`);
     }
 
     return result;
@@ -1372,6 +1373,24 @@
  */
   async function updatePropertyReviewConfig(projectId, payload) {
   return apiRequest(`/api/reviews/properties/${projectId}/config`, 'PUT', payload);
+}
+
+/** Alias: update review config (same as updatePropertyReviewConfig). */
+  async function updateReviewConfig(projectId, payload) {
+  return updatePropertyReviewConfig(projectId, payload);
+}
+
+/** Get daily alert email list (marketing). */
+  async function getDailyAlertList() {
+  return apiRequest('/api/reviews/config/daily-alert-list');
+}
+/** Add daily alert recipient: { PersonId } (from core contacts) or { Email, DisplayName? } (ad-hoc). Auth. */
+  async function addDailyAlertRecipient(body) {
+  return apiRequest('/api/reviews/config/daily-alert-list', 'POST', body);
+}
+/** Remove daily alert recipient by Id. Auth. */
+  async function removeDailyAlertRecipient(id) {
+  return apiRequest('/api/reviews/config/daily-alert-list/' + id, 'DELETE');
 }
 
 /**
@@ -2821,6 +2840,10 @@
   API.getReviews = getReviews;
   API.getReviewProperties = getReviewProperties;
   API.updatePropertyReviewConfig = updatePropertyReviewConfig;
+  API.updateReviewConfig = updateReviewConfig;
+  API.getDailyAlertList = getDailyAlertList;
+  API.addDailyAlertRecipient = addDailyAlertRecipient;
+  API.removeDailyAlertRecipient = removeDailyAlertRecipient;
   API.bulkUpsertReviews = bulkUpsertReviews;
   
   // Banking - Liquidity Requirements
