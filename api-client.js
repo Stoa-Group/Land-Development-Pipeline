@@ -2469,15 +2469,11 @@
  * Uses multipart/form-data; field name must be "file". Max file size 200MB.
  * @param {number} dealPipelineId - Deal Pipeline ID
  * @param {File|Blob} file - File or Blob to upload (e.g. from <input type="file">)
- * @param {string|null} [section] - Optional section: Land, Design and Permits, Comp Validation, Contractor, Legal, Underwriting
- * @returns {Promise<object>} { success: true, data: { DealPipelineAttachmentId, DealPipelineId, FileName, ContentType, FileSizeBytes, Section, CreatedAt } }
+ * @returns {Promise<object>} { success: true, data: { DealPipelineAttachmentId, DealPipelineId, FileName, ContentType, FileSizeBytes, CreatedAt } }
  */
-  async function uploadDealPipelineAttachment(dealPipelineId, file, section) {
+  async function uploadDealPipelineAttachment(dealPipelineId, file) {
   const formData = new FormData();
   formData.append('file', file);
-  if (section != null && section !== '') {
-    formData.append('section', String(section).trim());
-  }
   const options = {
     method: 'POST',
     headers: {},
