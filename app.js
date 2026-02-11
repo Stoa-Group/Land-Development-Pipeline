@@ -841,19 +841,44 @@ function parseLocalDateOnly(dateStr) {
     return isNaN(date.getTime()) ? null : date;
 }
 
-// Format date for display - always include year
+// Normalize to YYYY-MM-DD for comparison (handles ISO strings, Date, or plain YYYY-MM-DD so DB and Asana match when same calendar day).
+function toNormalizedDateString(value) {
+    if (value == null || value === '') return '';
+    if (typeof value === 'string') {
+        const part = value.trim().slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(part)) return part;
+    }
+    try {
+        const d = value instanceof Date ? value : new Date(value);
+        if (isNaN(d.getTime())) return '';
+        return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+    } catch (e) { return ''; }
+}
+
+// Format date for display - always include year.
+// Treats YYYY-MM-DD (and ISO date-only) as a calendar date so it doesn't shift to previous day in US timezones.
+// Date instances (e.g. from calculateSummary) are treated as date-only using UTC parts so UTC midnight shows as that calendar day.
 function formatDate(dateString) {
     if (!dateString) return '';
     
     try {
+        if (dateString instanceof Date) {
+            const d = dateString;
+            if (isNaN(d.getTime())) return '';
+            const y = d.getUTCFullYear(), m = d.getUTCMonth(), day = d.getUTCDate();
+            return new Date(y, m, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        const s = String(dateString).trim();
+        const dateOnly = s.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
+            const [y, m, d] = dateOnly.split('-').map(Number);
+            const date = new Date(y, m - 1, d);
+            if (isNaN(date.getTime())) return dateString;
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
         const date = new Date(dateString);
         if (isNaN(date.getTime())) return dateString;
-        
-        return date.toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric',
-            year: 'numeric'
-        });
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     } catch (e) {
         return dateString;
     }
@@ -5387,13 +5412,7 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
 
     const dealName = (deal.Name || deal.name || '').trim();
     const dbStartDate = deal['Start Date'] || deal.startDate;
-    const dbDateStr = dbStartDate ? (function(d) {
-        try {
-            const dt = new Date(d);
-            if (isNaN(dt.getTime())) return null;
-            return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
-        } catch (e) { return null; }
-    })(dbStartDate) : null;
+    const dbDateStr = dbStartDate ? toNormalizedDateString(dbStartDate) || null : null;
 
     API.getAsanaUpcomingTasks({ daysAhead: 365 }).then(function(res) {
         if (!res || !res.success || !Array.isArray(res.data)) return;
@@ -5461,7 +5480,9 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
         const asanaDate = parseLocalDateOnly(asanaDateStr) || new Date(asanaDateStr);
         const dbDate = dbDateStr ? (parseLocalDateOnly(dbDateStr) || new Date(dbDateStr)) : null;
         if (!dbDate || isNaN(dbDate.getTime())) return;
-        const sameDay = dbDateStr && asanaDateStr && dbDateStr === asanaDateStr;
+        const normDb = toNormalizedDateString(dbStartDate);
+        const normAsana = toNormalizedDateString(asanaDateStr);
+        const sameDay = normDb && normAsana && normDb === normAsana;
         const dbFormatted = formatDate(dbStartDate);
         const asanaFormatted = formatDate(asanaDate);
 
@@ -5807,15 +5828,66 @@ function showDealDetail(deal) {
                 </div>
                 <div class="deal-detail-section deal-detail-files-section" id="deal-detail-files-section" data-deal-pipeline-id="${deal.DealPipelineId || deal._original?.DealPipelineId || ''}">
                     <h3>Files</h3>
-                    <p class="deal-detail-files-desc">${typeof isAuthenticated !== 'undefined' && isAuthenticated ? 'View, download, upload, rename, or delete files (e.g. LOIs, site plans).' : 'View and download files. Only admins can upload, rename, or delete.'}</p>
+                    <p class="deal-detail-files-desc">${typeof isAuthenticated !== 'undefined' && isAuthenticated ? 'View, download, upload, rename, or delete files. Organize by section (Land, Design and Permits, etc.).' : 'View and download files. Only admins can upload, rename, or delete.'}</p>
                     <div class="deal-detail-files-message" id="deal-detail-files-message" role="status" aria-live="polite"></div>
-                    <div class="deal-detail-files-upload" id="deal-detail-files-upload-wrap" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                        <input type="file" class="deal-detail-file-input" id="deal-detail-file-input" multiple />
-                        <button type="button" class="deal-detail-upload-btn" id="deal-detail-upload-btn">Upload</button>
-                        <input type="file" id="deal-detail-file-version-input" accept="*" style="display: none;" />
-                    </div>
-                    <div class="deal-detail-files-list" id="deal-detail-files-list">
-                        <span class="deal-detail-files-loading">Loading files…</span>
+                    <input type="file" id="deal-detail-file-version-input" accept="*" style="display: none;" />
+                    <div class="deal-detail-files-subsections" id="deal-detail-files-subsections">
+                        <div class="deal-detail-files-subsection" data-section="Land">
+                            <h4 class="deal-detail-files-subsection-title">Land</h4>
+                            <div class="deal-detail-files-upload" id="deal-detail-files-upload-wrap" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Land" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Land">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Land"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
+                        <div class="deal-detail-files-subsection" data-section="Design and Permits">
+                            <h4 class="deal-detail-files-subsection-title">Design and Permits</h4>
+                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Design and Permits" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Design and Permits">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Design and Permits"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
+                        <div class="deal-detail-files-subsection" data-section="Comp Validation">
+                            <h4 class="deal-detail-files-subsection-title">Comp Validation</h4>
+                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Comp Validation" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Comp Validation">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Comp Validation"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
+                        <div class="deal-detail-files-subsection" data-section="Contractor">
+                            <h4 class="deal-detail-files-subsection-title">Contractor</h4>
+                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Contractor" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Contractor">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Contractor"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
+                        <div class="deal-detail-files-subsection" data-section="Legal">
+                            <h4 class="deal-detail-files-subsection-title">Legal</h4>
+                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Legal" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Legal">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Legal"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
+                        <div class="deal-detail-files-subsection" data-section="Underwriting">
+                            <h4 class="deal-detail-files-subsection-title">Underwriting</h4>
+                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Underwriting" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Underwriting">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Underwriting"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
+                        <div class="deal-detail-files-subsection" data-section="Other">
+                            <h4 class="deal-detail-files-subsection-title">Other</h4>
+                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Other" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Other">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Other"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -5826,10 +5898,9 @@ function showDealDetail(deal) {
     
     const dealPipelineId = deal.DealPipelineId || deal._original?.DealPipelineId;
     const filesSection = modal.querySelector('#deal-detail-files-section');
-    const filesListEl = modal.querySelector('#deal-detail-files-list');
     const filesMessageEl = modal.querySelector('#deal-detail-files-message');
-    const fileInput = modal.querySelector('#deal-detail-file-input');
-    const uploadBtn = modal.querySelector('#deal-detail-upload-btn');
+    var DEAL_PIPELINE_FILE_SECTIONS = ['Land', 'Design and Permits', 'Comp Validation', 'Contractor', 'Legal', 'Underwriting'];
+    var sectionKeys = DEAL_PIPELINE_FILE_SECTIONS.concat('Other');
     
     // Show message in Files section (works in sandboxed iframe where alert() is blocked)
     function showFilesMessage(text, isError) {
@@ -5880,312 +5951,328 @@ function showDealDetail(deal) {
         return null;
     }
     
+    function displaySectionForAttachment(a, list) {
+        var rootId = a.ParentAttachmentId != null ? a.ParentAttachmentId : a.DealPipelineAttachmentId;
+        var root = list.find(function (x) { return x.DealPipelineAttachmentId == rootId; });
+        var s = (root && root.Section && DEAL_PIPELINE_FILE_SECTIONS.indexOf(root.Section) >= 0) ? root.Section : 'Other';
+        return s;
+    }
+
     async function renderDealPopupFiles() {
-        if (!dealPipelineId || !filesListEl) return;
+        if (!dealPipelineId || !filesSection) return;
+        var listElsBySection = {};
+        sectionKeys.forEach(function (k) {
+            var el = filesSection.querySelector('.deal-detail-files-list-section[data-section="' + k + '"]');
+            if (el) listElsBySection[k] = el;
+        });
         try {
-            const res = await API.listDealPipelineAttachments(dealPipelineId);
-            const list = res.data || [];
-            const canEdit = typeof isAuthenticated !== 'undefined' && isAuthenticated;
+            var res = await API.listDealPipelineAttachments(dealPipelineId);
+            var list = res.data || [];
+            var canEdit = typeof isAuthenticated !== 'undefined' && isAuthenticated;
+            var emptyMsg = canEdit ? 'No files attached. Upload using the button above.' : 'No files attached.';
             if (list.length === 0) {
-                filesListEl.innerHTML = '<span class="deal-detail-files-empty">' + (canEdit ? 'No files attached. Upload using the button above.' : 'No files attached.') + '</span>';
+                sectionKeys.forEach(function (k) {
+                    if (listElsBySection[k]) listElsBySection[k].innerHTML = '<span class="deal-detail-files-empty">' + (k === 'Other' ? emptyMsg : 'No files in this section.') + '</span>';
+                });
                 return;
             }
-            // Group by document: if backend sends ParentAttachmentId, group by root; else group by base filename
-            let docGroups = [];
-            if (list.some(a => a.ParentAttachmentId != null)) {
-                const byRoot = {};
-                list.forEach(a => {
-                    const rootId = a.ParentAttachmentId != null ? a.ParentAttachmentId : a.DealPipelineAttachmentId;
-                    if (!byRoot[rootId]) byRoot[rootId] = [];
-                    byRoot[rootId].push(a);
-                });
-                docGroups = Object.keys(byRoot).map(rootId => ({
-                    key: rootId,
-                    versions: (byRoot[rootId] || []).slice().sort((x, y) => new Date(y.CreatedAt || 0) - new Date(x.CreatedAt || 0))
-                }));
-            } else {
-                const byName = {};
-                list.forEach(a => {
-                    const key = (a.FileName || '').toLowerCase().trim() || String(a.DealPipelineAttachmentId);
-                    if (!byName[key]) byName[key] = [];
-                    byName[key].push(a);
-                });
-                docGroups = Object.keys(byName).map(k => ({
-                    key: k,
-                    versions: (byName[k] || []).slice().sort((x, y) => new Date(y.CreatedAt || 0) - new Date(x.CreatedAt || 0))
-                }));
-            }
-
-            let html = '';
-            docGroups.forEach(({ versions }) => {
-                const latest = versions[0];
-                const versionCount = versions.length;
-                const sizeKb = (latest.FileSizeBytes / 1024).toFixed(1);
-                const dateStr = latest.CreatedAt ? formatDate(latest.CreatedAt) : '—';
-                const deleteBtn = canEdit
-                    ? `<button type="button" class="deal-detail-file-delete" data-attachment-id="${latest.DealPipelineAttachmentId}" title="Delete (admin only)">Delete</button>`
-                    : `<span class="deal-detail-file-delete-disabled" title="Only admins can delete files.">Delete (admin only)</span>`;
-                const renameBtn = canEdit
-                    ? `<button type="button" class="deal-detail-file-rename-btn" data-attachment-id="${latest.DealPipelineAttachmentId}" data-file-name="${(latest.FileName || '').replace(/"/g, '&quot;')}" title="Rename">Rename</button>`
-                    : '';
-                const fileName = (latest.FileName || 'File').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                const fileNameAttr = (latest.FileName || '').replace(/"/g, '&quot;');
-                const versionLabel = versionCount > 1 ? ` <span class="deal-detail-file-version-badge">Version ${versionCount} (current)</span>` : '';
-                const uploadNewVersionBtn = canEdit
-                    ? ` <button type="button" class="deal-detail-file-upload-version-btn" data-parent-id="${latest.DealPipelineAttachmentId}" title="Upload new version">Upload new version</button>`
-                    : '';
-                const viewableLatest = isViewableFile(latest.FileName, latest.ContentType);
-                const viewBtnLatest = viewableLatest
-                    ? `<button type="button" class="deal-detail-file-view-btn" data-attachment-id="${latest.DealPipelineAttachmentId}" data-file-name="${fileNameAttr}" title="View in browser">View</button>`
-                    : '';
-                html += `<div class="deal-detail-file-doc" data-parent-id="${latest.DealPipelineAttachmentId}">
-                    <div class="deal-detail-file-item" data-attachment-id="${latest.DealPipelineAttachmentId}">
-                        <span class="deal-detail-file-name" title="${fileNameAttr}">${fileName}</span>${versionLabel}
-                        <span class="deal-detail-file-meta">${sizeKb} KB · ${dateStr}</span>
-                        <div class="deal-detail-file-actions">
-                            ${renameBtn}
-                            ${viewBtnLatest}
-                            <button type="button" class="deal-detail-file-download-btn" data-attachment-id="${latest.DealPipelineAttachmentId}" data-file-name="${fileNameAttr}" title="Download">Download</button>
-                            ${deleteBtn}${uploadNewVersionBtn}
-                        </div>
-                    </div>`;
-                if (versions.length > 1) {
-                    html += '<div class="deal-detail-file-version-history">';
-                    versions.slice(1).forEach((a, i) => {
-                        const vNum = versions.length - i;
-                        const vDate = a.CreatedAt ? formatDate(a.CreatedAt) : '—';
-                        const vName = (a.FileName || '').replace(/"/g, '&quot;');
-                        const viewableVer = isViewableFile(a.FileName, a.ContentType);
-                        const viewBtnVer = viewableVer
-                            ? `<button type="button" class="deal-detail-file-view-btn" data-attachment-id="${a.DealPipelineAttachmentId}" data-file-name="${vName}" title="View in browser">View</button>`
-                            : '';
-                        html += `<div class="deal-detail-file-version-row">
-                            <span class="deal-detail-file-version-label">Version ${vNum}</span>
-                            <span class="deal-detail-file-meta">${vDate}</span>
-                            ${viewBtnVer}
-                            <button type="button" class="deal-detail-file-download-btn" data-attachment-id="${a.DealPipelineAttachmentId}" data-file-name="${vName}" title="Download">Download</button>
-                        </div>`;
-                    });
-                    html += '</div>';
-                }
-                html += '</div>';
+            var bySection = {};
+            sectionKeys.forEach(function (k) { bySection[k] = []; });
+            list.forEach(function (a) {
+                var sec = displaySectionForAttachment(a, list);
+                bySection[sec].push(a);
             });
-            filesListEl.innerHTML = html;
-            const token = (typeof API.getAuthToken === 'function' && API.getAuthToken()) || (typeof localStorage !== 'undefined' && localStorage.getItem('authToken'));
-            // Helper: get server error message from failed fetch (JSON body like { success: false, error: { message: "..." } })
+
+            var token = (typeof API.getAuthToken === 'function' && API.getAuthToken()) || (typeof localStorage !== 'undefined' && localStorage.getItem('authToken'));
             async function getFetchErrorMessage(res) {
                 try {
-                    const json = await res.json();
-                    return json?.error?.message || res.statusText || 'Request failed';
+                    var json = await res.json();
+                    return json && json.error && json.error.message ? json.error.message : res.statusText || 'Request failed';
                 } catch (_) {
                     return res.statusText || 'Request failed';
                 }
             }
-            // Rename: inline edit filename
-            filesListEl.querySelectorAll('.deal-detail-file-rename-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const attachmentId = parseInt(btn.dataset.attachmentId, 10);
-                    const currentName = (btn.dataset.fileName || '').replace(/&quot;/g, '"');
-                    const item = btn.closest('.deal-detail-file-item');
-                    const nameEl = item.querySelector('.deal-detail-file-name');
-                    const actionsEl = item.querySelector('.deal-detail-file-actions');
-                    const input = document.createElement('input');
-                    input.type = 'text';
-                    input.className = 'deal-detail-file-rename-input';
-                    input.value = currentName;
-                    input.placeholder = 'File name';
-                    const saveBtn = document.createElement('button');
-                    saveBtn.type = 'button';
-                    saveBtn.className = 'deal-detail-files-confirm-btn deal-detail-file-rename-save';
-                    saveBtn.textContent = 'Save';
-                    const cancelBtn = document.createElement('button');
-                    cancelBtn.type = 'button';
-                    cancelBtn.className = 'deal-detail-files-confirm-btn deal-detail-file-rename-cancel';
-                    cancelBtn.textContent = 'Cancel';
-                    nameEl.replaceWith(input);
-                    actionsEl.prepend(saveBtn, cancelBtn);
-                    btn.remove();
-                    input.focus();
-                    input.select();
-                    saveBtn.addEventListener('click', async () => {
-                        const newName = (input.value || '').trim();
-                        if (!newName) { showFilesMessage('Enter a file name.', true); return; }
+
+            function attachFileListeners(listEl) {
+                if (!listEl) return;
+                listEl.querySelectorAll('.deal-detail-file-rename-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var attachmentId = parseInt(btn.dataset.attachmentId, 10);
+                        var currentName = (btn.dataset.fileName || '').replace(/&quot;/g, '"');
+                        var item = btn.closest('.deal-detail-file-item');
+                        var nameEl = item.querySelector('.deal-detail-file-name');
+                        var actionsEl = item.querySelector('.deal-detail-file-actions');
+                        var input = document.createElement('input');
+                        input.type = 'text';
+                        input.className = 'deal-detail-file-rename-input';
+                        input.value = currentName;
+                        input.placeholder = 'File name';
+                        var saveBtn = document.createElement('button');
+                        saveBtn.type = 'button';
+                        saveBtn.className = 'deal-detail-files-confirm-btn deal-detail-file-rename-save';
+                        saveBtn.textContent = 'Save';
+                        var cancelBtn = document.createElement('button');
+                        cancelBtn.type = 'button';
+                        cancelBtn.className = 'deal-detail-files-confirm-btn deal-detail-file-rename-cancel';
+                        cancelBtn.textContent = 'Cancel';
+                        nameEl.replaceWith(input);
+                        actionsEl.prepend(saveBtn, cancelBtn);
+                        btn.remove();
+                        input.focus();
+                        input.select();
+                        saveBtn.addEventListener('click', async function () {
+                            var newName = (input.value || '').trim();
+                            if (!newName) { showFilesMessage('Enter a file name.', true); return; }
+                            try {
+                                await API.updateDealPipelineAttachment(attachmentId, { FileName: newName });
+                                renderDealPopupFiles();
+                            } catch (e) {
+                                showFilesMessage(e.message || 'Rename failed.', true);
+                            }
+                        });
+                        cancelBtn.addEventListener('click', function () { renderDealPopupFiles(); });
+                        input.addEventListener('keydown', function (e) {
+                            if (e.key === 'Enter') saveBtn.click();
+                            if (e.key === 'Escape') cancelBtn.click();
+                        });
+                    });
+                });
+                listEl.querySelectorAll('.deal-detail-file-view-btn').forEach(function (btn) {
+                    btn.addEventListener('click', async function () {
+                        var attachmentId = btn.dataset.attachmentId;
+                        var url = API.getDealPipelineAttachmentDownloadUrl(attachmentId);
                         try {
-                            await API.updateDealPipelineAttachment(attachmentId, { FileName: newName });
-                            renderDealPopupFiles();
+                            var res = await fetch(url, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+                            if (!res.ok) {
+                                var msg = await getFetchErrorMessage(res);
+                                var hint = msg.toLowerCase().includes('file not found') ? ' The file may not have been saved on the server.' : (msg.toLowerCase().includes('crypto is not defined') ? ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file URLs.' : '');
+                                showFilesMessage(msg + hint, true);
+                                return;
+                            }
+                            var blob = await res.blob();
+                            var objectUrl = URL.createObjectURL(blob);
+                            window.open(objectUrl, '_blank', 'noopener');
                         } catch (e) {
-                            showFilesMessage(e.message || 'Rename failed.', true);
+                            var msg = e.message || 'Could not open file.';
+                            if (String(msg).toLowerCase().includes('crypto is not defined')) msg += ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file downloads.';
+                            showFilesMessage(msg, true);
                         }
                     });
-                    cancelBtn.addEventListener('click', () => renderDealPopupFiles());
-                    input.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter') saveBtn.click();
-                        if (e.key === 'Escape') cancelBtn.click();
-                    });
                 });
-            });
-            // View: open viewable files (PDF, images) in a new tab without downloading
-            filesListEl.querySelectorAll('.deal-detail-file-view-btn').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const attachmentId = btn.dataset.attachmentId;
-                    const url = API.getDealPipelineAttachmentDownloadUrl(attachmentId);
-                    try {
-                        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-                        if (!res.ok) {
-                            const msg = await getFetchErrorMessage(res);
-                            let hint = '';
-                            if (msg.toLowerCase().includes('file not found')) hint = ' The file may not have been saved on the server.';
-                            else if (msg.toLowerCase().includes('crypto is not defined')) hint = ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file URLs.';
-                            showFilesMessage(msg + hint, true);
-                            return;
-                        }
-                        const blob = await res.blob();
-                        const objectUrl = URL.createObjectURL(blob);
-                        window.open(objectUrl, '_blank', 'noopener');
-                        // Don't revoke so the new tab can display the content; blob is freed when tab is closed
-                    } catch (e) {
-                        let msg = e.message || 'Could not open file.';
-                        if (String(msg).toLowerCase().includes('crypto is not defined')) msg += ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file downloads.';
-                        showFilesMessage(msg, true);
-                    }
-                });
-            });
-            // Download: fetch with auth then trigger download
-            filesListEl.querySelectorAll('.deal-detail-file-download-btn').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const attachmentId = btn.dataset.attachmentId;
-                    const fileName = (btn.dataset.fileName || 'file').replace(/&quot;/g, '"');
-                    const url = API.getDealPipelineAttachmentDownloadUrl(attachmentId);
-                    try {
-                        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-                        if (!res.ok) {
-                            const msg = await getFetchErrorMessage(res);
-                            let hint = '';
-                            if (msg.toLowerCase().includes('file not found')) hint = ' The file may not have been saved on the server. Check that the backend is storing uploads correctly.';
-                            else if (msg.toLowerCase().includes('crypto is not defined')) hint = ' This is a server-side error: the backend must require the Node.js "crypto" module (e.g. const crypto = require("crypto")) where it serves or signs file URLs.';
-                            showFilesMessage(msg + hint, true);
-                            return;
-                        }
-                        const blob = await res.blob();
-                        const objectUrl = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = objectUrl;
-                        a.download = fileName;
-                        a.click();
-                        URL.revokeObjectURL(objectUrl);
-                    } catch (e) {
-                        let msg = e.message || 'Download failed.';
-                        if (String(msg).toLowerCase().includes('crypto is not defined')) msg += ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file downloads.';
-                        showFilesMessage(msg, true);
-                    }
-                });
-            });
-            // Delete (admin only - button only shown when canDelete); use inline confirm (no modal) for sandboxed iframe
-            filesListEl.querySelectorAll('.deal-detail-file-delete').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const attachmentId = parseInt(btn.dataset.attachmentId, 10);
-                    if (!filesMessageEl) return;
-                    clearTimeout(filesMessageEl._clearTimer);
-                    filesMessageEl._clearTimer = null;
-                    filesMessageEl.innerHTML = 'Delete this file? This cannot be undone. <button type="button" class="deal-detail-files-confirm-btn deal-detail-files-confirm-delete">Yes, delete</button> <button type="button" class="deal-detail-files-confirm-btn deal-detail-files-confirm-cancel">Cancel</button>';
-                    filesMessageEl.style.display = 'block';
-                    filesMessageEl.className = 'deal-detail-files-message';
-                    filesMessageEl.dataset.pendingAttachmentId = String(attachmentId);
-                    filesMessageEl.querySelector('.deal-detail-files-confirm-cancel').addEventListener('click', () => {
-                        filesMessageEl.textContent = '';
-                        filesMessageEl.style.display = 'none';
-                        filesMessageEl.removeAttribute('data-pending-attachment-id');
-                    });
-                    filesMessageEl.querySelector('.deal-detail-files-confirm-delete').addEventListener('click', async () => {
-                        const id = parseInt(filesMessageEl.dataset.pendingAttachmentId, 10);
-                        filesMessageEl.textContent = '';
-                        filesMessageEl.style.display = 'none';
-                        filesMessageEl.removeAttribute('data-pending-attachment-id');
+                listEl.querySelectorAll('.deal-detail-file-download-btn').forEach(function (btn) {
+                    btn.addEventListener('click', async function () {
+                        var attachmentId = btn.dataset.attachmentId;
+                        var fileName = (btn.dataset.fileName || 'file').replace(/&quot;/g, '"');
+                        var url = API.getDealPipelineAttachmentDownloadUrl(attachmentId);
                         try {
-                            await API.deleteDealPipelineAttachment(id);
-                            renderDealPopupFiles();
+                            var res = await fetch(url, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+                            if (!res.ok) {
+                                var msg = await getFetchErrorMessage(res);
+                                var hint = msg.toLowerCase().includes('file not found') ? ' The file may not have been saved on the server. Check that the backend is storing uploads correctly.' : (msg.toLowerCase().includes('crypto is not defined') ? ' This is a server-side error: the backend must require the Node.js "crypto" module (e.g. const crypto = require("crypto")) where it serves or signs file URLs.' : '');
+                                showFilesMessage(msg + hint, true);
+                                return;
+                            }
+                            var blob = await res.blob();
+                            var objectUrl = URL.createObjectURL(blob);
+                            var a = document.createElement('a');
+                            a.href = objectUrl;
+                            a.download = fileName;
+                            a.click();
+                            URL.revokeObjectURL(objectUrl);
                         } catch (e) {
-                            showFilesMessage(e.message || 'Delete failed.', true);
+                            var msg = e.message || 'Download failed.';
+                            if (String(msg).toLowerCase().includes('crypto is not defined')) msg += ' This is a server-side error: the backend must require the Node.js "crypto" module where it serves file downloads.';
+                            showFilesMessage(msg, true);
                         }
                     });
                 });
-            });
-            // Upload new version (admin only): open file picker, then upload with parentAttachmentId
-            filesListEl.querySelectorAll('.deal-detail-file-upload-version-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const parentId = btn.dataset.parentId;
-                    const versionInput = document.getElementById('deal-detail-file-version-input');
-                    if (versionInput && parentId) {
-                        versionInput.dataset.parentId = parentId;
-                        versionInput.value = '';
-                        versionInput.click();
-                    }
+                listEl.querySelectorAll('.deal-detail-file-delete').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var attachmentId = parseInt(btn.dataset.attachmentId, 10);
+                        if (!filesMessageEl) return;
+                        clearTimeout(filesMessageEl._clearTimer);
+                        filesMessageEl._clearTimer = null;
+                        filesMessageEl.innerHTML = 'Delete this file? This cannot be undone. <button type="button" class="deal-detail-files-confirm-btn deal-detail-files-confirm-delete">Yes, delete</button> <button type="button" class="deal-detail-files-confirm-btn deal-detail-files-confirm-cancel">Cancel</button>';
+                        filesMessageEl.style.display = 'block';
+                        filesMessageEl.className = 'deal-detail-files-message';
+                        filesMessageEl.dataset.pendingAttachmentId = String(attachmentId);
+                        filesMessageEl.querySelector('.deal-detail-files-confirm-cancel').addEventListener('click', function () {
+                            filesMessageEl.textContent = '';
+                            filesMessageEl.style.display = 'none';
+                            filesMessageEl.removeAttribute('data-pending-attachment-id');
+                        });
+                        filesMessageEl.querySelector('.deal-detail-files-confirm-delete').addEventListener('click', async function () {
+                            var id = parseInt(filesMessageEl.dataset.pendingAttachmentId, 10);
+                            filesMessageEl.textContent = '';
+                            filesMessageEl.style.display = 'none';
+                            filesMessageEl.removeAttribute('data-pending-attachment-id');
+                            try {
+                                await API.deleteDealPipelineAttachment(id);
+                                renderDealPopupFiles();
+                            } catch (e) {
+                                showFilesMessage(e.message || 'Delete failed.', true);
+                            }
+                        });
+                    });
                 });
+                listEl.querySelectorAll('.deal-detail-file-upload-version-btn').forEach(function (btn) {
+                    btn.addEventListener('click', function () {
+                        var parentId = btn.dataset.parentId;
+                        var versionInput = document.getElementById('deal-detail-file-version-input');
+                        if (versionInput && parentId) {
+                            versionInput.dataset.parentId = parentId;
+                            versionInput.value = '';
+                            versionInput.click();
+                        }
+                    });
+                });
+            }
+
+            sectionKeys.forEach(function (sectionKey) {
+                var listEl = listElsBySection[sectionKey];
+                if (!listEl) return;
+                var sectionList = bySection[sectionKey] || [];
+                if (sectionList.length === 0) {
+                    listEl.innerHTML = '<span class="deal-detail-files-empty">No files in this section.</span>';
+                    return;
+                }
+                var docGroups = [];
+                if (sectionList.some(function (a) { return a.ParentAttachmentId != null; })) {
+                    var byRoot = {};
+                    sectionList.forEach(function (a) {
+                        var rootId = a.ParentAttachmentId != null ? a.ParentAttachmentId : a.DealPipelineAttachmentId;
+                        if (!byRoot[rootId]) byRoot[rootId] = [];
+                        byRoot[rootId].push(a);
+                    });
+                    docGroups = Object.keys(byRoot).map(function (rootId) {
+                        return { key: rootId, versions: (byRoot[rootId] || []).slice().sort(function (x, y) { return new Date(y.CreatedAt || 0) - new Date(x.CreatedAt || 0); }) };
+                    });
+                } else {
+                    var byName = {};
+                    sectionList.forEach(function (a) {
+                        var key = (a.FileName || '').toLowerCase().trim() || String(a.DealPipelineAttachmentId);
+                        if (!byName[key]) byName[key] = [];
+                        byName[key].push(a);
+                    });
+                    docGroups = Object.keys(byName).map(function (k) {
+                        return { key: k, versions: (byName[k] || []).slice().sort(function (x, y) { return new Date(y.CreatedAt || 0) - new Date(x.CreatedAt || 0); }) };
+                    });
+                }
+                var html = '';
+                docGroups.forEach(function (group) {
+                    var versions = group.versions;
+                    var latest = versions[0];
+                    var versionCount = versions.length;
+                    var sizeKb = (latest.FileSizeBytes / 1024).toFixed(1);
+                    var dateStr = latest.CreatedAt ? formatDate(latest.CreatedAt) : '—';
+                    var deleteBtn = canEdit
+                        ? '<button type="button" class="deal-detail-file-delete" data-attachment-id="' + latest.DealPipelineAttachmentId + '" title="Delete (admin only)">Delete</button>'
+                        : '<span class="deal-detail-file-delete-disabled" title="Only admins can delete files.">Delete (admin only)</span>';
+                    var renameBtn = canEdit
+                        ? '<button type="button" class="deal-detail-file-rename-btn" data-attachment-id="' + latest.DealPipelineAttachmentId + '" data-file-name="' + (latest.FileName || '').replace(/"/g, '&quot;') + '" title="Rename">Rename</button>'
+                        : '';
+                    var fileName = (latest.FileName || 'File').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    var fileNameAttr = (latest.FileName || '').replace(/"/g, '&quot;');
+                    var versionLabel = versionCount > 1 ? ' <span class="deal-detail-file-version-badge">Version ' + versionCount + ' (current)</span>' : '';
+                    var uploadNewVersionBtn = canEdit
+                        ? ' <button type="button" class="deal-detail-file-upload-version-btn" data-parent-id="' + latest.DealPipelineAttachmentId + '" title="Upload new version">Upload new version</button>'
+                        : '';
+                    var viewableLatest = isViewableFile(latest.FileName, latest.ContentType);
+                    var viewBtnLatest = viewableLatest
+                        ? '<button type="button" class="deal-detail-file-view-btn" data-attachment-id="' + latest.DealPipelineAttachmentId + '" data-file-name="' + fileNameAttr + '" title="View in browser">View</button>'
+                        : '';
+                    html += '<div class="deal-detail-file-doc" data-parent-id="' + latest.DealPipelineAttachmentId + '"><div class="deal-detail-file-item" data-attachment-id="' + latest.DealPipelineAttachmentId + '"><span class="deal-detail-file-name" title="' + fileNameAttr + '">' + fileName + '</span>' + versionLabel + '<span class="deal-detail-file-meta">' + sizeKb + ' KB · ' + dateStr + '</span><div class="deal-detail-file-actions">' + renameBtn + viewBtnLatest + '<button type="button" class="deal-detail-file-download-btn" data-attachment-id="' + latest.DealPipelineAttachmentId + '" data-file-name="' + fileNameAttr + '" title="Download">Download</button>' + deleteBtn + uploadNewVersionBtn + '</div></div>';
+                    if (versions.length > 1) {
+                        html += '<div class="deal-detail-file-version-history">';
+                        versions.slice(1).forEach(function (a, i) {
+                            var vNum = versions.length - i;
+                            var vDate = a.CreatedAt ? formatDate(a.CreatedAt) : '—';
+                            var vName = (a.FileName || '').replace(/"/g, '&quot;');
+                            var viewableVer = isViewableFile(a.FileName, a.ContentType);
+                            var viewBtnVer = viewableVer
+                                ? '<button type="button" class="deal-detail-file-view-btn" data-attachment-id="' + a.DealPipelineAttachmentId + '" data-file-name="' + vName + '" title="View in browser">View</button>'
+                                : '';
+                            html += '<div class="deal-detail-file-version-row"><span class="deal-detail-file-version-label">Version ' + vNum + '</span><span class="deal-detail-file-meta">' + vDate + '</span>' + viewBtnVer + '<button type="button" class="deal-detail-file-download-btn" data-attachment-id="' + a.DealPipelineAttachmentId + '" data-file-name="' + vName + '" title="Download">Download</button></div>';
+                        });
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                });
+                listEl.innerHTML = html;
+                attachFileListeners(listEl);
             });
         } catch (e) {
-            const msg = e.message || 'Could not load files.';
-            filesListEl.innerHTML = `<span class="deal-detail-files-error">${msg}${msg.toLowerCase().includes('file not found') ? ' Check that the backend is saving uploads and serving them correctly.' : ''}</span>`;
+            var msg = (e && e.message) ? e.message : 'Could not load files.';
+            sectionKeys.forEach(function (k) {
+                if (listElsBySection[k]) listElsBySection[k].innerHTML = '<span class="deal-detail-files-error">' + msg + (msg.toLowerCase().indexOf('file not found') >= 0 ? ' Check that the backend is saving uploads and serving them correctly.' : '') + '</span>';
+            });
         }
     }
     
     if (dealPipelineId && filesSection) {
         renderDealPopupFiles();
-        uploadBtn.addEventListener('click', () => { fileInput.click(); });
-        fileInput.addEventListener('change', async () => {
-            const files = fileInput.files;
-            if (!files || files.length === 0) return;
-            let anyFailed = false;
-            let kmzCoordsUpdated = false;
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                try {
-                    await API.uploadDealPipelineAttachment(dealPipelineId, file);
-                    const name = (file.name || '').toLowerCase();
-                    if (name.endsWith('.kmz') || name.endsWith('.kml')) {
-                        try {
-                            const coords = await extractCoordinatesFromKmlOrKmz(file);
-                            if (coords != null) {
-                                await API.updateDealPipeline(dealPipelineId, {
-                                    Latitude: coords.latitude,
-                                    Longitude: coords.longitude,
-                                    CoordinateSource: 'KMZ'
-                                });
-                                kmzCoordsUpdated = true;
-                                const dealInList = (typeof allDeals !== 'undefined' ? allDeals : []).find(d => (d.DealPipelineId || d._original?.DealPipelineId) == dealPipelineId);
-                                if (dealInList) {
-                                    dealInList.Latitude = dealInList.latitude = coords.latitude;
-                                    dealInList.Longitude = dealInList.longitude = coords.longitude;
-                                    dealInList.CoordinateSource = dealInList.coordinateSource = 'KMZ';
-                                    const orig = dealInList._original || deal._original;
-                                    if (orig) {
-                                        orig.Latitude = coords.latitude;
-                                        orig.Longitude = coords.longitude;
-                                        orig.CoordinateSource = 'KMZ';
+        filesSection.querySelectorAll('.deal-detail-upload-btn').forEach(function (uploadBtn) {
+            var section = uploadBtn.getAttribute('data-section');
+            var fileInput = filesSection.querySelector('.deal-detail-file-input[data-section="' + section + '"]');
+            if (!fileInput) return;
+            uploadBtn.addEventListener('click', function () { fileInput.click(); });
+            fileInput.addEventListener('change', async function () {
+                var files = fileInput.files;
+                if (!files || files.length === 0) return;
+                var apiSection = (section === 'Other' || !section) ? null : section;
+                var anyFailed = false;
+                var kmzCoordsUpdated = false;
+                for (var i = 0; i < files.length; i++) {
+                    var file = files[i];
+                    try {
+                        await API.uploadDealPipelineAttachment(dealPipelineId, file, apiSection);
+                        var name = (file.name || '').toLowerCase();
+                        if (name.endsWith('.kmz') || name.endsWith('.kml')) {
+                            try {
+                                var coords = await extractCoordinatesFromKmlOrKmz(file);
+                                if (coords != null) {
+                                    await API.updateDealPipeline(dealPipelineId, {
+                                        Latitude: coords.latitude,
+                                        Longitude: coords.longitude,
+                                        CoordinateSource: 'KMZ'
+                                    });
+                                    kmzCoordsUpdated = true;
+                                    var dealInList = (typeof allDeals !== 'undefined' ? allDeals : []).find(function (d) { return (d.DealPipelineId || d._original && d._original.DealPipelineId) == dealPipelineId; });
+                                    if (dealInList) {
+                                        dealInList.Latitude = dealInList.latitude = coords.latitude;
+                                        dealInList.Longitude = dealInList.longitude = coords.longitude;
+                                        dealInList.CoordinateSource = dealInList.coordinateSource = 'KMZ';
+                                        var orig = dealInList._original || deal._original;
+                                        if (orig) {
+                                            orig.Latitude = coords.latitude;
+                                            orig.Longitude = coords.longitude;
+                                            orig.CoordinateSource = 'KMZ';
+                                        }
+                                    }
+                                    if (deal) {
+                                        deal.Latitude = deal.latitude = coords.latitude;
+                                        deal.Longitude = deal.longitude = coords.longitude;
+                                        deal.CoordinateSource = deal.coordinateSource = 'KMZ';
                                     }
                                 }
-                                if (deal) {
-                                    deal.Latitude = deal.latitude = coords.latitude;
-                                    deal.Longitude = deal.longitude = coords.longitude;
-                                    deal.CoordinateSource = deal.coordinateSource = 'KMZ';
-                                }
+                            } catch (parseErr) {
+                                if (typeof console !== 'undefined' && console.warn) console.warn('KMZ/KML coordinate extraction failed:', parseErr);
                             }
-                        } catch (parseErr) {
-                            console.warn('KMZ/KML coordinate extraction failed:', parseErr);
                         }
+                    } catch (e) {
+                        anyFailed = true;
+                        var msg = (e && e.message) ? e.message : 'Upload failed.';
+                        showFilesMessage(msg + (msg.toLowerCase().indexOf('file not found') >= 0 ? ' The server may not be saving files. Check backend upload/storage configuration.' : ''), true);
                     }
-                } catch (e) {
-                    anyFailed = true;
-                    const msg = e.message || 'Upload failed.';
-                    showFilesMessage(msg + (msg.toLowerCase().includes('file not found') ? ' The server may not be saving files. Check backend upload/storage configuration.' : ''), true);
                 }
-            }
-            fileInput.value = '';
-            if (!anyFailed && files.length > 0) {
-                renderDealPopupFiles();
-                if (kmzCoordsUpdated) showFilesMessage('File uploaded. Coordinates updated from KMZ/KML.', false);
-            }
+                fileInput.value = '';
+                if (!anyFailed && files.length > 0) {
+                    renderDealPopupFiles();
+                    if (kmzCoordsUpdated) showFilesMessage('File uploaded. Coordinates updated from KMZ/KML.', false);
+                }
+            });
         });
-        const versionInput = modal.querySelector('#deal-detail-file-version-input');
+        var versionInput = modal.querySelector('#deal-detail-file-version-input');
         if (versionInput) {
             versionInput.addEventListener('change', async function() {
                 const parentId = this.dataset.parentId;
@@ -6194,7 +6281,7 @@ function showDealDetail(deal) {
                 this.removeAttribute('data-parent-id');
                 if (!file || !parentId) return;
                 try {
-                    await API.uploadDealPipelineAttachment(dealPipelineId, file, { parentAttachmentId: parseInt(parentId, 10) });
+                    await API.uploadDealPipelineAttachment(dealPipelineId, file, null);
                     renderDealPopupFiles();
                     showFilesMessage('New version uploaded.', false);
                 } catch (e) {
@@ -6202,9 +6289,11 @@ function showDealDetail(deal) {
                 }
             });
         }
-    } else if (filesListEl) {
-        filesListEl.innerHTML = '<span class="deal-detail-files-empty">Files are available for deals saved in the pipeline.</span>';
-        if (filesSection) filesSection.querySelector('.deal-detail-files-upload').style.display = 'none';
+    } else if (filesSection) {
+        filesSection.querySelectorAll('.deal-detail-files-list-section').forEach(function (el) {
+            el.innerHTML = '<span class="deal-detail-files-empty">Files are available for deals saved in the pipeline.</span>';
+        });
+        filesSection.querySelectorAll('.deal-detail-files-upload').forEach(function (el) { el.style.display = 'none'; });
     }
     
     // Close handlers

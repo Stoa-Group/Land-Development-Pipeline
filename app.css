@@ -3746,10 +3746,34 @@ body.map-fullscreen-active {
     opacity: 0.9;
 }
 
-.deal-detail-files-list {
+.deal-detail-files-list,
+.deal-detail-files-list-section {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+.deal-detail-files-subsections {
+    margin-top: 8px;
+}
+
+.deal-detail-files-subsection {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
+.deal-detail-files-subsection:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.deal-detail-files-subsection-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: var(--text-primary);
 }
 
 .deal-detail-files-loading,
