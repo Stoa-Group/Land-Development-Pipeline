@@ -81,6 +81,15 @@ body {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
 }
+html[data-mobile="true"] body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+}
+html[data-mobile="true"] button,
+html[data-mobile="true"] .btn,
+html[data-mobile="true"] .nav-tab {
+    min-height: 44px;
+}
 
 /* Main Layout – fill available height without breaking in iframes */
 .app-container {

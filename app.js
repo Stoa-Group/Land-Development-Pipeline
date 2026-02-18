@@ -7560,7 +7560,20 @@ function initMapFullscreenDelegation() {
 }
 
 // Main initialization
+function updateMobileState() {
+    const m = window.matchMedia && window.matchMedia('(max-width: 768px)').matches || ('ontouchstart' in window && window.innerWidth <= 768);
+    document.documentElement.setAttribute('data-mobile', m ? 'true' : 'false');
+    window.IS_MOBILE = m;
+}
+var _mobileResizeT;
+function debouncedMobileResize() {
+    clearTimeout(_mobileResizeT);
+    _mobileResizeT = setTimeout(updateMobileState, 100);
+}
 async function init() {
+    // Mobile: keep data-mobile in sync on resize/rotate
+    updateMobileState();
+    window.addEventListener('resize', debouncedMobileResize);
     // One-time: stage filter dropdown so "All Stages" and overview stage dropdown work
     initStageFilterDropdowns();
     // One-time: map fullscreen button (delegated so it works in Domo/iframe and after re-render)
