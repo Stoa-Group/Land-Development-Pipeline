@@ -1280,7 +1280,7 @@
 
 /**
  * Get Asana tasks (with due_on, start_date, and optional other fields for DB vs Asana compare). GET /api/asana/upcoming-tasks (view-only; no auth required)
- * @param {object} [opts] - Optional: { workspace?: string (workspace GID), project?: string (project GID; when no workspace), daysAhead?: number (default 90) }
+ * @param {object} [opts] - Optional: { workspace?, project?, daysAhead? (default 90), daysBack? (include tasks with due/start in past N days for matching) }
  * @returns {Promise<object>} { success: true, data: [ { projectGid, projectName, tasks: [ { gid, name, due_on, start_date, permalink_url, unit_count?, stage?, bank?, product_type?, location?, precon_manager? } ] } ] } or { success: false, error: { message } }
  */
   async function getAsanaUpcomingTasks(opts) {
@@ -1288,6 +1288,7 @@
   if (opts?.workspace) params.set('workspace', opts.workspace);
   if (opts?.project) params.set('project', opts.project);
   if (opts?.daysAhead != null) params.set('daysAhead', String(opts.daysAhead));
+  if (opts?.daysBack != null) params.set('daysBack', String(opts.daysBack));
   const qs = params.toString();
   const endpoint = '/api/asana/upcoming-tasks' + (qs ? '?' + qs : '');
   return apiRequest(endpoint);
@@ -1424,16 +1425,32 @@
   return apiRequest('/api/leasing/aggregates' + (qs ? '?' + qs : ''));
 }
 
+  var _leasingDashboardCacheKey = '';
+  var _leasingDashboardCache = null;
+  var _leasingDashboardCacheExpiry = 0;
+  var LEASING_DASHBOARD_CACHE_TTL_MS = 120000;
+
 /**
- * Get full pre-computed dashboard payload. All authoritative calculations run on the backend; frontend is visual-only.
- * @param {object} opts - { asOf?: 'YYYY-MM-DD' }
- * @returns {Promise<{ success: boolean, dashboard: object|null, _meta? }>}
+ * Get pre-computed dashboard payload. Default part='dashboard' for smaller, faster load; part='full' for raw + dashboard.
+ * Caches 2 min to reduce server load and speed up navigation.
+ * @param {object} opts - { asOf?: 'YYYY-MM-DD', skipCache?: boolean, part?: 'dashboard'|'raw'|'full' }
+ * @returns {Promise<{ success: boolean, dashboard: object|null, raw?: object, _meta? }>}
  */
   async function getLeasingDashboard(opts = {}) {
+  const part = opts.part || 'dashboard';
+  const cacheKey = (opts.asOf || '') + '|' + part;
+  if (!opts.skipCache && _leasingDashboardCache != null && _leasingDashboardCacheKey === cacheKey && Date.now() < _leasingDashboardCacheExpiry) {
+    return _leasingDashboardCache;
+  }
   const params = new URLSearchParams();
   if (opts.asOf) params.set('asOf', opts.asOf);
+  if (part !== 'full') params.set('part', part);
   const qs = params.toString();
-  return apiRequest('/api/leasing/dashboard' + (qs ? '?' + qs : ''));
+  const result = await apiRequest('/api/leasing/dashboard' + (qs ? '?' + qs : ''));
+  _leasingDashboardCacheKey = cacheKey;
+  _leasingDashboardCache = result;
+  _leasingDashboardCacheExpiry = Date.now() + LEASING_DASHBOARD_CACHE_TTL_MS;
+  return result;
 }
 
 // LIQUIDITY REQUIREMENTS
