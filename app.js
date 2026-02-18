@@ -246,10 +246,7 @@ function fuzzyMatchProjectName(projName, procoreName) {
     // Normalized exact match
     if (projNorm === procoreNorm) return true;
     
-    // One contains the other
-    if (projNorm.includes(procoreNorm) || procoreNorm.includes(projNorm)) return true;
-    
-    // Extract key words
+    // Extract key words (needed for "one contains the other" specificity check)
     const commonWords = new Set(['the', 'at', 'of', 'and', 'project', 'construction', 'apartments', 'apartment', 'llc', 'inc', 'corp']);
     const getKeyWords = (str) => {
         return str.split(/\s+/)
@@ -260,6 +257,25 @@ function fuzzyMatchProjectName(projName, procoreName) {
     
     const projWords = getKeyWords(projNorm);
     const procoreWords = getKeyWords(procoreNorm);
+    
+    // One contains the other — but avoid matching a short Procore name to a longer, more specific deal name
+    // e.g. don't match Procore "The Heights" (Hammond) to deal "The Heights at Inverness" or "The Heights at Fort Walton Beach"
+    if (projNorm.includes(procoreNorm) || procoreNorm.includes(projNorm)) {
+        if (projNorm.includes(procoreNorm)) {
+            // Deal name contains Procore name (e.g. deal="heights inverness", procore="heights")
+            const extraInDeal = projWords.filter(w => !procoreWords.includes(w) && w.length > 3);
+            if (extraInDeal.length >= 1) {
+                // Deal has at least one extra distinguishing word (e.g. inverness, fort, walton, beach) — require Procore to contain at least one so we don't match "The Heights" to "The Heights at Inverness"
+                const procoreHasExtra = extraInDeal.some(w => procoreNorm.includes(w));
+                if (!procoreHasExtra) return false;
+            }
+        }
+        return true;
+    }
+    
+    // Deal has extra distinguishing word(s) not in Procore — avoid false match (e.g. "The Heights at Inverness" vs "The Heights")
+    const dealHasExtraNotInProcore = projWords.length > procoreWords.length &&
+        projWords.some(w => w.length > 3 && !procoreWords.includes(w) && !procoreNorm.includes(w));
     
     // Calculate similarity score
     let matchScore = 0;
@@ -283,11 +299,15 @@ function fuzzyMatchProjectName(projName, procoreName) {
     
     const normalizedScore = totalWords > 0 ? (matchScore / (totalWords * 2)) * 100 : 0;
     
-    if (normalizedScore >= 50) return true;
+    if (normalizedScore >= 50) {
+        if (dealHasExtraNotInProcore) return false;
+        return true;
+    }
     
     // Word-by-word matching
     const matchingWords = projWords.filter(w => procoreWords.includes(w));
     if (matchingWords.length >= 2 && matchingWords.some(w => w.length > 3)) {
+        if (dealHasExtraNotInProcore) return false;
         const commonPrefixWords = new Set(['waters', 'heights', 'flats', 'palms', 'lofts']);
         const projLocationWords = projWords.filter(w => w.length > 5 && !commonPrefixWords.has(w));
         const procoreLocationWords = procoreWords.filter(w => w.length > 5 && !commonPrefixWords.has(w));
@@ -305,7 +325,7 @@ function fuzzyMatchProjectName(projName, procoreName) {
     const significantProcoreWords = procoreWords.filter(w => w.length > 4);
     if (significantProjWords.length > 0 && significantProcoreWords.length > 0) {
         const matching = significantProjWords.some(w => significantProcoreWords.includes(w));
-        if (matching && normalizedScore >= 40) return true;
+        if (matching && normalizedScore >= 40 && !dealHasExtraNotInProcore) return true;
     }
     
     // Long word matching
@@ -320,7 +340,7 @@ function fuzzyMatchProjectName(projName, procoreName) {
         if (projNorm.includes(cw)) longWordMatches++;
     }
     
-    if (longWordMatches >= 2) return true;
+    if (longWordMatches >= 2 && !dealHasExtraNotInProcore) return true;
     
     // Location word matching
     const commonPrefixWords = new Set(['waters', 'heights', 'flats', 'palms', 'lofts']);
@@ -330,6 +350,7 @@ function fuzzyMatchProjectName(projName, procoreName) {
     
     for (const locWord of uniqueLocationWords) {
         if (projNorm.includes(locWord) && procoreNorm.includes(locWord)) {
+            if (dealHasExtraNotInProcore) return false;
             const otherWordsProj = projWords.filter(w => w !== locWord && w.length > 3);
             const otherWordsProcore = procoreWords.filter(w => w !== locWord && w.length > 3);
             const otherMatches = otherWordsProj.filter(w => otherWordsProcore.includes(w));
@@ -344,9 +365,9 @@ function fuzzyMatchProjectName(projName, procoreName) {
 
 /**
  * Start date is controlled by Deal Pipeline. Procore overrides only when its actual start date
- * is in the past by 30+ days and the project is in Procore.
+ * is in the past by 60+ days and the project is in Procore.
  * @param {string} actualStartDateStr - Procore actualstartdate (ISO or YYYY-MM-DD)
- * @returns {boolean} true if Procore should override (date is 30+ days in the past)
+ * @returns {boolean} true if Procore should override (date is 60+ days in the past)
  */
 function isProcoreStartDateOverride(actualStartDateStr) {
     if (!actualStartDateStr || typeof actualStartDateStr !== 'string') return false;
@@ -355,7 +376,7 @@ function isProcoreStartDateOverride(actualStartDateStr) {
         if (isNaN(d.getTime())) return false;
         const now = new Date();
         const cutoff = new Date(now);
-        cutoff.setDate(cutoff.getDate() - 30);
+        cutoff.setDate(cutoff.getDate() - 60);
         return d <= cutoff;
     } catch (e) {
         return false;
@@ -505,19 +526,25 @@ async function syncProcoreDataToDatabase(procoreData, dbDeals) {
             const dealPipelineUpdates = {};
             let hasDealPipelineUpdates = false;
             
-            // Sync start date from Procore only when it is 30+ days in the past (otherwise Deal Pipeline owns it)
+            // Procore start date overrides both database and Asana when: project is in Procore, has a start date, and that date is 60+ days in the past. No decision by DB or Asana—Procore is the only source of truth.
             if (procoreProject.actualstartdate && isProcoreStartDateOverride(procoreProject.actualstartdate)) {
                 let formattedDate = procoreProject.actualstartdate;
                 if (formattedDate.includes('T')) {
                     formattedDate = formattedDate.split('T')[0];
                 }
-                const currentDate = bestMatch.EstimatedConstructionStartDate || bestMatch.StartDate;
-                if (currentDate !== formattedDate) {
-                    updateData.EstimatedConstructionStartDate = formattedDate;
-                    if (dealPipelineId) {
-                        dealPipelineUpdates.StartDate = formattedDate;
-                        hasDealPipelineUpdates = true;
-                    }
+                updateData.EstimatedConstructionStartDate = formattedDate;
+                if (dealPipelineId) {
+                    dealPipelineUpdates.StartDate = formattedDate;
+                    hasDealPipelineUpdates = true;
+                }
+                const asanaTaskGid = bestMatch.AsanaTaskGid || (bestMatch.asanaTaskGid && String(bestMatch.asanaTaskGid).trim()) || null;
+                if (asanaTaskGid && typeof API !== 'undefined' && typeof API.updateAsanaTaskStartDate === 'function' && formattedDate) {
+                    updates.push(
+                        API.updateAsanaTaskStartDate(asanaTaskGid, formattedDate).catch(err => {
+                            console.warn('Procore sync: could not update Asana start date for task ' + asanaTaskGid + ':', err);
+                            return null;
+                        })
+                    );
                 }
             }
             
@@ -527,40 +554,36 @@ async function syncProcoreDataToDatabase(procoreData, dbDeals) {
             const procoreStateRaw = procoreProject.state || null;
             const procoreState = extractStateAbbreviation(procoreAddress, procoreStateRaw);
             
-            // Sync City to both Project and DealPipeline tables
-            if (procoreCity) {
-                if (bestMatch.City !== procoreCity) {
-                    updateData.City = procoreCity;
-                    if (dealPipelineId) {
-                        dealPipelineUpdates.City = procoreCity;
-                        hasDealPipelineUpdates = true;
-                    }
+            // Only sync City/State/Region from Procore when DB has no value (avoid overwriting manual fixes, e.g. Heights at Inverness → Hoover AL)
+            const dbHasCity = bestMatch.City != null && String(bestMatch.City).trim() !== '';
+            const dbHasState = bestMatch.State != null && String(bestMatch.State).trim() !== '';
+            const dbHasRegion = bestMatch.Region != null && String(bestMatch.Region).trim() !== '';
+            
+            if (procoreCity && !dbHasCity) {
+                updateData.City = procoreCity;
+                if (dealPipelineId) {
+                    dealPipelineUpdates.City = procoreCity;
+                    hasDealPipelineUpdates = true;
                 }
             }
             
-            // Sync State (extracted as abbreviation) to both Project and DealPipeline tables
-            if (procoreState) {
-                if (bestMatch.State !== procoreState) {
-                    updateData.State = procoreState;
-                    if (dealPipelineId) {
-                        dealPipelineUpdates.State = procoreState;
-                        hasDealPipelineUpdates = true;
-                    }
+            if (procoreState && !dbHasState) {
+                updateData.State = procoreState;
+                if (dealPipelineId) {
+                    dealPipelineUpdates.State = procoreState;
+                    hasDealPipelineUpdates = true;
                 }
             }
             
-            // Sync Region to both Project and DealPipeline tables
-            if (procoreProject.region) {
-                if (bestMatch.Region !== procoreProject.region) {
-                    updateData.Region = procoreProject.region;
-                    if (dealPipelineId) {
-                        dealPipelineUpdates.Region = procoreProject.region;
-                        hasDealPipelineUpdates = true;
-                    }
+            if (procoreProject.region && !dbHasRegion) {
+                updateData.Region = procoreProject.region;
+                if (dealPipelineId) {
+                    dealPipelineUpdates.Region = procoreProject.region;
+                    hasDealPipelineUpdates = true;
                 }
             }
             
-            // Sync coordinates from Procore only when: (1) deal coords are not from KMZ, (2) Procore start date is 30+ days in past (Procore sync starts then)
+            // Sync coordinates from Procore only when: (1) deal coords are not from KMZ, (2) Procore start date is 60+ days in past (Procore sync starts then)
             const coordSource = (bestMatch.CoordinateSource || bestMatch.coordinateSource || '').trim();
             const coordsFromKmz = coordSource.toLowerCase() === 'kmz';
             const procoreStartDateOk = procoreProject.actualstartdate && isProcoreStartDateOverride(procoreProject.actualstartdate);
@@ -1128,10 +1151,10 @@ function mapDealPipelineDataToDeal(dbDeal, loansMap = {}, banksMap = {}) {
     let region = dbDeal.Region;
     
     if (hasProcore) {
-        // Procore data overrides database data
-        if (procoreMatch.city) city = procoreMatch.city;
-        if (procoreMatch.state) state = procoreMatch.state;
-        if (procoreMatch.region) region = procoreMatch.region;
+        // Procore fills in only when database has no value (so DB remains source of truth after manual updates, e.g. Heights at Inverness → Hoover AL)
+        if (procoreMatch.city && (city == null || String(city).trim() === '')) city = procoreMatch.city;
+        if (procoreMatch.state && (state == null || String(state).trim() === '')) state = procoreMatch.state;
+        if (procoreMatch.region && (region == null || String(region).trim() === '')) region = procoreMatch.region;
     }
     
     if (city && state) {
@@ -1164,7 +1187,7 @@ function mapDealPipelineDataToDeal(dbDeal, loansMap = {}, banksMap = {}) {
         }
     }
     
-    // Start Date: controlled by Deal Pipeline. Procore overrides only if its actual start date is 30+ days in the past
+    // Start Date: controlled by Deal Pipeline. Procore overrides only if its actual start date is 60+ days in the past
     let startDate = dbDeal.StartDate || dbDeal.EstimatedConstructionStartDate || null;
     let dateSource = dbDeal.StartDate ? 'database' : (dbDeal.EstimatedConstructionStartDate ? 'core' : 'none');
     let procoreOverridesStartDate = false;
@@ -1180,7 +1203,7 @@ function mapDealPipelineDataToDeal(dbDeal, loansMap = {}, banksMap = {}) {
         unitCount = procoreMatch.unitCount;
     }
     
-    // Coordinates: priority KMZ > Manual (db) > Procore. If from KMZ, never use Procore. Procore only syncs 30+ days after start date.
+    // Coordinates: priority KMZ > Manual (db) > Procore. If from KMZ, never use Procore. Procore only syncs 60+ days after start date.
     const coordSource = (dbDeal.CoordinateSource || dbDeal.coordinateSource || '').trim();
     const fromKmz = coordSource.toLowerCase() === 'kmz';
     let latitude = dbDeal.Latitude != null ? parseFloat(dbDeal.Latitude) : null;
@@ -1416,7 +1439,7 @@ function mapAsanaDataToDeal(asanaItem) {
         productType = asanaItem['Product Type Custom'];
     }
     
-    // Procore coordinates only when start date is 30+ days in the past (Procore sync starts then)
+    // Procore coordinates only when start date is 60+ days in the past (Procore sync starts then)
     let latitude = null;
     let longitude = null;
     const procoreStartDateOk = startDate && isProcoreStartDateOverride(startDate);
@@ -1668,7 +1691,7 @@ function renderDealRow(deal) {
             <td class="deal-cell unit-count" data-label="Unit Count">${deal['Unit Count'] || deal.unitCount || deal.units || '-'}</td>
             <td class="deal-cell date-display ${isOverdue(deal['Start Date'] || deal.startDate) ? 'overdue' : ''}" data-label="Start Date" title="${(() => {
                 const source = deal['Start Date Source'] || 'unknown';
-                const sourceText = source === 'procore' ? 'From Procore (actual start 30+ days in past)' : 
+                const sourceText = source === 'procore' ? 'From Procore (actual start 60+ days in past)' : 
                                   source === 'database' ? 'From Database' :
                                   source === 'asana_custom' ? 'From Asana Custom Field' : 
                                   source === 'asana_due' ? 'From Asana Due Date' : 
@@ -1677,7 +1700,7 @@ function renderDealRow(deal) {
                 const dateStr = typeof startDate === 'string' ? startDate : (startDate ? new Date(startDate).toISOString() : 'No date');
                 return `${sourceText}\nRaw date: ${dateStr}`;
             })()}">
-                ${formatDate(deal['Start Date'] || deal.startDate) || '-'}
+                ${formatDate(deal['Start Date'] || deal.startDate) || '-'}${(deal._procoreOverridesStartDate || (deal['Start Date Source'] && String(deal['Start Date Source']).toLowerCase() === 'procore')) ? ' <span class="date-source-procore" title="Start date controlled by Procore">(Procore)</span>' : ''}
             </td>
             <td class="deal-cell secondary" data-label="Bank">${deal.Bank || deal.bank || '-'}</td>
             <td class="deal-cell secondary" data-label="Product Type">${deal['Product Type'] || deal.productType || '-'}</td>
@@ -2736,15 +2759,79 @@ function renderOverview(deals) {
     `;
 }
 
-// Match Asana project name to deal name (for view-only Asana tasks in Upcoming Dates)
+// Normalize for Asana/deal name comparison (trim, lowercase, collapse spaces, ignore apostrophes)
+function asanaNormalizeName(str) {
+    return String(str || '').trim().toLowerCase()
+        .replace(/['\u2019\u2018\u0027]/g, '')
+        .replace(/\s+/g, ' ');
+}
+// Two key words match if equal or one is a prefix of the other (handles truncation e.g. "East Ba" vs "East Bay")
+function asanaWordMatches(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return (a.length >= 2 && b.startsWith(a)) || (b.length >= 2 && a.startsWith(b));
+}
+// Match Asana project/task name to deal name with disambiguation so generic names don't match specific deals.
+// e.g. Asana "The Heights" must not match deal "The Heights at Inverness" unless Asana name contains "inverness".
+// Ignores apostrophes (e.g. "Settler's" matches "Settlers") and allows word-overlap match when names are very similar.
 function asanaProjectNameMatchesDeal(projectName, dealName) {
     if (!projectName || !dealName) return false;
-    const n = (s) => String(s || '').toLowerCase().trim();
-    const p = n(projectName);
-    const d = n(dealName);
+    const p = asanaNormalizeName(projectName);
+    const d = asanaNormalizeName(dealName);
+    if (!p || !d) return false;
     if (p === d) return true;
-    if (d.indexOf(p) !== -1 || p.indexOf(d) !== -1) return true;
+    const commonWords = new Set(['the', 'at', 'of', 'and', 'project', 'construction', 'apartments', 'apartment', 'llc', 'inc', 'corp']);
+    const getKeyWords = (str) => str.split(/\s+/).filter(w => w.length > 2 && !commonWords.has(w)).map(w => w.replace(/[^a-z0-9]/g, '')).filter(w => w.length > 0);
+    const pWords = getKeyWords(p);
+    const dWords = getKeyWords(d);
+    if (d.indexOf(p) !== -1) {
+        const extraInDeal = dWords.filter(w => !pWords.includes(w) && w.length > 3);
+        if (extraInDeal.length >= 2) {
+            const asanaHasExtra = extraInDeal.some(w => p.indexOf(w) !== -1);
+            if (!asanaHasExtra) return false;
+        }
+        return true;
+    }
+    if (p.indexOf(d) !== -1) {
+        const extraInAsana = pWords.filter(w => !dWords.includes(w) && w.length > 3);
+        if (extraInAsana.length >= 2) {
+            const dealHasExtra = extraInAsana.some(w => d.indexOf(w) !== -1);
+            if (!dealHasExtra) return false;
+        }
+        return true;
+    }
+    // Word-overlap fallback: e.g. "The Waters at Settler's Trace" vs "Waters at Settlers Trace" – same key words
+    if (pWords.length >= 2 && dWords.length >= 2) {
+        const pSet = new Set(pWords);
+        const dSet = new Set(dWords);
+        const overlap = pWords.filter(w => dSet.has(w)).length;
+        const minWords = Math.min(pWords.length, dWords.length);
+        if (overlap >= minWords || (overlap >= 2 && overlap >= minWords * 0.8)) return true;
+    }
     return false;
+}
+// Return a score for match quality (higher = better). Used to pick the best Asana task when multiple match.
+function asanaMatchQuality(asanaName, dealName) {
+    if (!asanaName || !dealName) return 0;
+    const p = asanaNormalizeName(asanaName);
+    const d = asanaNormalizeName(dealName);
+    if (!p || !d) return 0;
+    if (p === d) return 100;
+    if (d.indexOf(p) !== -1 || p.indexOf(d) !== -1) {
+        if (!asanaProjectNameMatchesDeal(asanaName, dealName)) return 0;
+        const lenMatch = Math.min(p.length, d.length) / Math.max(p.length, d.length);
+        return 50 + Math.round(lenMatch * 40);
+    }
+    if (asanaProjectNameMatchesDeal(asanaName, dealName)) {
+        const commonWords = new Set(['the', 'at', 'of', 'and', 'project', 'construction', 'apartments', 'apartment', 'llc', 'inc', 'corp']);
+        const getKeyWords = (str) => str.split(/\s+/).filter(w => w.length > 2 && !commonWords.has(w)).map(w => w.replace(/[^a-z0-9]/g, '')).filter(w => w.length > 0);
+        const pWords = getKeyWords(p);
+        const dWords = getKeyWords(d);
+        const overlap = pWords.filter(w => dWords.includes(w)).length;
+        const minWords = Math.min(pWords.length, dWords.length);
+        if (minWords > 0) return 40 + Math.round((overlap / minWords) * 50);
+    }
+    return 0;
 }
 
 // Upcoming Dates view – land development: deal start dates, key dates, and Asana tasks (view-only, matched by project name)
@@ -5350,7 +5437,7 @@ function clearFilters() {
 // Make clearFilters globally accessible
 window.clearFilters = clearFilters;
 
-// Asana sync: other custom fields (Unit Count, Stage, Bank, Product Type, Location, Pre-Con Manager). One-direction: DB → Asana only.
+// Asana sync: other custom fields (Unit Count, Stage, Bank, Product Type, Location, Pre-Con Manager). Both directions: DB ↔ Asana.
 var ASANA_OTHER_FIELDS_CONFIG = [
     { key: 'unit_count', label: 'Unit Count', getDb: function(d) { var v = d['Unit Count'] || d.unitCount; return v != null && v !== '' ? String(v).trim() : ''; }, getAsana: function(t) { var v = t.unit_count != null ? t.unit_count : (t.custom_fields && t.custom_fields.unit_count != null ? t.custom_fields.unit_count : null); return v != null ? String(v).trim() : ''; }, same: function(a, b) { var na = parseInt(a, 10), nb = parseInt(b, 10); if (!isNaN(na) && !isNaN(nb)) return na === nb; return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
     { key: 'stage', label: 'Stage', getDb: function(d) { return (normalizeStage(d.Stage || d.stage) || '').trim(); }, getAsana: function(t) { var v = t.stage != null ? t.stage : (t.custom_fields && t.custom_fields.stage != null ? t.custom_fields.stage : null); return (v || '').toString().trim(); }, same: function(a, b) { return (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase(); } },
@@ -5364,6 +5451,7 @@ function buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmi
     var container = modal && modal.querySelector('#deal-detail-asana-other-fields-content');
     if (!container || !matchedTask || typeof API === 'undefined' || !API.updateAsanaTaskCustomField) return;
     var taskGid = (matchedTask.gid || '').replace(/"/g, '&quot;');
+    var dealPipelineId = deal.DealPipelineId || (deal._original && deal._original.DealPipelineId) || '';
     var rows = [];
     for (var i = 0; i < ASANA_OTHER_FIELDS_CONFIG.length; i++) {
         var cfg = ASANA_OTHER_FIELDS_CONFIG[i];
@@ -5375,13 +5463,17 @@ function buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmi
         if (isSame) {
             rows.push('<div class="deal-detail-asana-field-row"><strong>' + cfg.label + ':</strong> Database and Asana match (<span>' + displayDb + '</span>).</div>');
         } else {
+            var asanaValEsc = (asanaVal || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+            var dbBtn = isAdmin ? ' <button type="button" class="deal-detail-btn deal-detail-asana-override-field" data-task-gid="' + taskGid + '" data-field-key="' + (cfg.key || '').replace(/"/g, '&quot;') + '" data-db-value="' + (dbVal || '').replace(/"/g, '&quot;') + '">Override Asana with database value</button>' : '';
+            // Bank is controlled by another department in the DB — only allow DB → Asana, not Asana → DB
+            var asanaBtn = (isAdmin && dealPipelineId && cfg.key !== 'bank') ? ' <button type="button" class="deal-detail-btn deal-detail-asana-override-db-field" data-field-key="' + (cfg.key || '').replace(/"/g, '&quot;') + '" data-asana-value="' + asanaValEsc + '" data-deal-pipeline-id="' + String(dealPipelineId).replace(/"/g, '&quot;') + '">Override database with Asana value</button>' : '';
             rows.push('<div class="deal-detail-asana-field-row">' +
                 '<strong>' + cfg.label + ':</strong> Database: <span>' + displayDb + '</span>; Asana: <span>' + displayAsana + '</span>.' +
-                (isAdmin ? ' <button type="button" class="deal-detail-btn deal-detail-asana-override-field" data-task-gid="' + taskGid + '" data-field-key="' + (cfg.key || '').replace(/"/g, '&quot;') + '" data-db-value="' + (dbVal || '').replace(/"/g, '&quot;') + '">Override Asana with database value</button>' : '') +
+                dbBtn + asanaBtn +
                 '</div>');
         }
     }
-    container.innerHTML = rows.length ? '<p class="deal-detail-asana-remedies" style="margin-bottom: 8px;">Other fields (database → Asana only):</p>' + rows.join('') : '';
+    container.innerHTML = rows.length ? '<p class="deal-detail-asana-remedies" style="margin-bottom: 8px;">Other fields (sync either direction):</p>' + rows.join('') : '';
     if (isAdmin) {
         modal.querySelectorAll('.deal-detail-asana-override-field').forEach(function(btn) {
             btn.addEventListener('click', function() {
@@ -5400,6 +5492,132 @@ function buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmi
                 });
             });
         });
+        modal.querySelectorAll('.deal-detail-asana-override-db-field').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var fieldKey = this.getAttribute('data-field-key');
+                var asanaValue = this.getAttribute('data-asana-value');
+                var dealPipelineIdVal = this.getAttribute('data-deal-pipeline-id');
+                if (!dealPipelineIdVal || !fieldKey) return;
+                if (typeof API.updateDealPipeline !== 'function') return;
+                var label = fieldKey;
+                for (var k = 0; k < ASANA_OTHER_FIELDS_CONFIG.length; k++) { if (ASANA_OTHER_FIELDS_CONFIG[k].key === fieldKey) { label = ASANA_OTHER_FIELDS_CONFIG[k].label; break; } }
+                var payload = {};
+                if (fieldKey === 'unit_count') {
+                    var num = parseInt(asanaValue, 10);
+                    if (!isNaN(num)) payload.UnitCount = num; else payload.UnitCount = null;
+                } else if (fieldKey === 'stage') {
+                    payload.Stage = asanaValue != null ? asanaValue : '';
+                } else if (fieldKey === 'bank') {
+                    payload.Bank = asanaValue != null ? asanaValue : '';
+                } else if (fieldKey === 'product_type') {
+                    payload.ProductType = asanaValue != null ? asanaValue : '';
+                } else if (fieldKey === 'location') {
+                    var loc = (asanaValue || '').trim();
+                    if (loc) {
+                        var commaIdx = loc.lastIndexOf(',');
+                        if (commaIdx > 0) {
+                            payload.City = loc.slice(0, commaIdx).trim();
+                            payload.State = loc.slice(commaIdx + 1).trim();
+                        } else {
+                            payload.City = loc;
+                        }
+                    } else {
+                        payload.City = '';
+                        payload.State = '';
+                    }
+                } else if (fieldKey === 'precon_manager') {
+                    var asanaPreConName = (asanaValue || '').trim();
+                    if (!asanaPreConName) return;
+                    btn.disabled = true;
+                    var rowForPreCon = btn.closest('.deal-detail-asana-field-row');
+                    if (rowForPreCon) rowForPreCon.innerHTML = '<strong>Pre-Con Manager:</strong> <span class="deal-detail-asana-discrepancy-msg">Looking up Pre-Con Manager…</span>';
+                    if (typeof API.getAllPreConManagers !== 'function') {
+                        if (rowForPreCon) rowForPreCon.innerHTML = '<strong>Pre-Con Manager:</strong> <span class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Pre-Con Manager list is not available. Use the deal form to assign.</span>';
+                        btn.disabled = false;
+                        return;
+                    }
+                    API.getAllPreConManagers().then(function(res) {
+                        if (!res || !res.success || !Array.isArray(res.data)) {
+                            if (rowForPreCon) rowForPreCon.innerHTML = '<strong>Pre-Con Manager:</strong> <span class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Could not load Pre-Con Manager list.</span>';
+                            btn.disabled = false;
+                            return;
+                        }
+                        var nameLower = asanaPreConName.toLowerCase();
+                        var match = res.data.find(function(m) { return ((m.FullName || m.PreConManagerName || '').trim().toLowerCase() === nameLower); });
+                        if (!match) {
+                            if (rowForPreCon) rowForPreCon.innerHTML = '<strong>Pre-Con Manager:</strong> <span class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">No Pre-Con Manager in the database matches &quot;' + (asanaPreConName.replace(/</g, '&lt;')) + '&quot;. Add them in Settings or use the deal form to assign.</span>';
+                            btn.disabled = false;
+                            return;
+                        }
+                        var preConPayload = { PreConManagerId: match.PreConManagerId };
+                        if (typeof console !== 'undefined') console.log('[Override DB field] REQUEST →', { dealPipelineId: dealPipelineIdVal, fieldKey: fieldKey, payload: preConPayload });
+                        API.updateDealPipeline(dealPipelineIdVal, preConPayload).then(function(response) {
+                            if (typeof console !== 'undefined') console.log('[Override DB field] RESPONSE from database ←', response);
+                            if (rowForPreCon) rowForPreCon.innerHTML = '<strong>Pre-Con Manager:</strong> <span class="deal-detail-asana-discrepancy-msg">Database updated to match Asana (' + (match.FullName || match.PreConManagerName || '').replace(/</g, '&lt;') + ').</span>';
+                            if (typeof allDeals !== 'undefined' && Array.isArray(allDeals)) {
+                                var idx = allDeals.findIndex(function(d) { return (d.DealPipelineId || (d._original && d._original.DealPipelineId)) === parseInt(dealPipelineIdVal, 10); });
+                                if (idx >= 0) {
+                                    var d = allDeals[idx];
+                                    d['Pre-Con'] = match.FullName || match.PreConManagerName;
+                                    d.preCon = d['Pre-Con'];
+                                    d.PreConManagerId = match.PreConManagerId;
+                                    if (d._original) { d._original.PreConManagerId = match.PreConManagerId; d._original.PreConManagerName = d['Pre-Con']; }
+                                }
+                            }
+                        }).catch(function(e) {
+                            if (rowForPreCon) rowForPreCon.innerHTML = '<strong>Pre-Con Manager:</strong> <span class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Update failed: ' + (e && e.message ? String(e.message).replace(/</g, '&lt;') : 'Unknown error') + '</span>';
+                            if (typeof console !== 'undefined') console.error('[Override DB field] failed', e);
+                            btn.disabled = false;
+                        });
+                    }).catch(function(e) {
+                        if (rowForPreCon) rowForPreCon.innerHTML = '<strong>Pre-Con Manager:</strong> <span class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Could not load Pre-Con Manager list.</span>';
+                        btn.disabled = false;
+                        if (typeof console !== 'undefined') console.error(e);
+                    });
+                    return;
+                }
+                if (Object.keys(payload).length === 0) return;
+                btn.disabled = true;
+                if (typeof console !== 'undefined') {
+                    console.log('[Override DB field] REQUEST →', { dealPipelineId: dealPipelineIdVal, fieldKey: fieldKey, payload: payload });
+                }
+                API.updateDealPipeline(dealPipelineIdVal, payload).then(function(response) {
+                    if (typeof console !== 'undefined') {
+                        console.log('[Override DB field] RESPONSE from database ←', response);
+                        console.log('[Override DB field] rowsUpdated:', response && response.rowsUpdated, '| message:', response && response.message);
+                    }
+                    var row = btn.closest('.deal-detail-asana-field-row');
+                    var successMsg = (fieldKey === 'location' && response && response.rowsUpdated === 0) ? 'Database (city/state) updated to match Asana.' : 'Database updated to match Asana.';
+                    if (row) row.innerHTML = '<strong>' + label + ':</strong> <span class="deal-detail-asana-discrepancy-msg">' + successMsg + '</span>';
+                    else btn.outerHTML = '<span class="deal-detail-asana-discrepancy-msg">Database ' + label + ' updated to match Asana.</span>';
+                    if (typeof allDeals !== 'undefined' && Array.isArray(allDeals)) {
+                        var idx = allDeals.findIndex(function(d) { return (d.DealPipelineId || (d._original && d._original.DealPipelineId)) === parseInt(dealPipelineIdVal, 10); });
+                        if (idx >= 0) {
+                            var d = allDeals[idx];
+                            if (fieldKey === 'unit_count') { d['Unit Count'] = payload.UnitCount; d.unitCount = payload.UnitCount; }
+                            else if (fieldKey === 'stage') { d.Stage = payload.Stage; d.stage = payload.Stage; }
+                            else if (fieldKey === 'bank') { d.Bank = payload.Bank; d.bank = payload.Bank; }
+                            else if (fieldKey === 'product_type') { d['Product Type'] = payload.ProductType; d.productType = payload.ProductType; }
+                            else if (fieldKey === 'location') {
+                                d.Location = (payload.City || '') + (payload.State ? ', ' + payload.State : ''); d.location = d.Location;
+                                if (payload.City != null) d.City = payload.City; if (payload.State != null) d.State = payload.State;
+                                if (d._original) { d._original.City = payload.City != null ? payload.City : d._original.City; d._original.State = payload.State != null ? payload.State : d._original.State; d._original.Location = d.Location; }
+                            }
+                        }
+                    }
+                    // Re-render current view so list/timeline/map shows updated data when modal is closed
+                    if (typeof switchView === 'function' && typeof currentView !== 'undefined' && typeof allDeals !== 'undefined' && Array.isArray(allDeals)) {
+                        switchView(currentView, allDeals);
+                    }
+                }).catch(function(e) {
+                    btn.disabled = false;
+                    if (typeof console !== 'undefined') console.error('[Override DB field] failed', e);
+                    var row = btn.closest('.deal-detail-asana-field-row');
+                    var errMsg = (e && e.message) ? String(e.message).replace(/</g, '&lt;') : 'Update failed. Try the deal Edit form to change City/State.';
+                    if (row) row.innerHTML = '<strong>' + (label || 'Location') + ':</strong> <span class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">' + errMsg + '</span>';
+                });
+            });
+        });
     }
 }
 
@@ -5414,22 +5632,31 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
     const dbStartDate = deal['Start Date'] || deal.startDate;
     const dbDateStr = dbStartDate ? toNormalizedDateString(dbStartDate) || null : null;
 
-    API.getAsanaUpcomingTasks({ daysAhead: 365 }).then(function(res) {
+    API.getAsanaUpcomingTasks({ daysAhead: 365, daysBack: 730 }).then(function(res) {
         if (!res || !res.success || !Array.isArray(res.data)) return;
-        let matchedTask = null;
-        for (let i = 0; i < (res.data || []).length; i++) {
-            const project = res.data[i];
+        const projects = res.data || [];
+        const candidates = [];
+        for (let i = 0; i < projects.length; i++) {
+            const project = projects[i];
+            const projName = (project.projectName || project.name || '').trim();
             const tasks = project.tasks || [];
+            if (asanaProjectNameMatchesDeal(projName, dealName) && tasks.length > 0) {
+                candidates.push({ task: tasks[0], score: asanaMatchQuality(projName, dealName), byProject: true });
+            }
             for (let j = 0; j < tasks.length; j++) {
                 const task = tasks[j];
                 const taskName = (task.name || '').trim();
                 if (asanaProjectNameMatchesDeal(taskName, dealName)) {
-                    matchedTask = task;
-                    break;
+                    const score = asanaMatchQuality(taskName, dealName);
+                    if (!candidates.some(c => c.task.gid === task.gid)) candidates.push({ task: task, score: score, byProject: false });
                 }
             }
-            if (matchedTask) break;
         }
+        candidates.sort(function(a, b) {
+            if (b.score !== a.score) return b.score - a.score;
+            return (b.byProject ? 1 : 0) - (a.byProject ? 1 : 0);
+        });
+        const matchedTask = candidates.length > 0 ? candidates[0].task : null;
         if (!matchedTask) return;
 
         // Use Asana custom field "Start Date" only; never treat due_on as start date.
@@ -5438,37 +5665,82 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
         const isAdmin = typeof isAuthenticated !== 'undefined' && isAuthenticated;
         const asanaUrl = (matchedTask.permalink_url || 'https://app.asana.com/0/0/' + (matchedTask.gid || '')).replace(/"/g, '&quot;');
 
+        // Check Procore: when project is in Procore and start date is 60+ days in past, Procore overrides DB and Asana
+        let procoreDateStr = null;
+        const projectId = deal.ProjectId != null ? deal.ProjectId : (deal._original && deal._original.ProjectId);
+        if (projectId && typeof window.PROCORE_MATCHES !== 'undefined' && window.PROCORE_MATCHES) {
+            const projectIdNum = typeof projectId === 'number' ? projectId : parseInt(projectId, 10);
+            let procoreMatch = window.PROCORE_MATCHES.get(projectIdNum) || window.PROCORE_MATCHES.get(projectId) || window.PROCORE_MATCHES.get(String(projectId));
+            if (!procoreMatch) {
+                const allKeys = Array.from(window.PROCORE_MATCHES.keys());
+                const foundKey = allKeys.find(function(k) { return k == projectId || k == projectIdNum || String(k) === String(projectId) || Number(k) === projectIdNum; });
+                if (foundKey !== undefined) procoreMatch = window.PROCORE_MATCHES.get(foundKey);
+            }
+            if (procoreMatch && procoreMatch.actualstartdate && typeof isProcoreStartDateOverride === 'function' && isProcoreStartDateOverride(procoreMatch.actualstartdate)) {
+                procoreDateStr = procoreMatch.actualstartdate;
+                if (procoreDateStr.indexOf('T') !== -1) procoreDateStr = procoreDateStr.split('T')[0];
+            }
+        }
+
         if (!asanaStartDateStr) {
             var dbFormattedNoDate = dbDateStr ? formatDate(dbStartDate) : '';
+            // When Procore override applies, show Procore date and prefer it for DB/Asana
+            var dateToUse = procoreDateStr || dbDateStr;
+            var dateToUseFormatted = dateToUse ? (dateToUse === procoreDateStr ? formatDate(dateToUse) : dbFormattedNoDate) : dbFormattedNoDate;
+            if (!dateToUseFormatted && dateToUse) {
+                try { dateToUseFormatted = formatDate(new Date(dateToUse)); } catch (e) { dateToUseFormatted = dateToUse; }
+            }
+            var msg = 'Asana has no start date for this project.';
+            if (procoreDateStr) {
+                msg += ' This project is in <strong>Procore</strong> with start date <strong>' + (dateToUseFormatted.replace(/</g, '&lt;')) + '</strong> (60+ days in past, so Procore overrides).';
+                if (dbDateStr && dbDateStr !== procoreDateStr) msg += ' Database currently has <strong>' + (dbFormattedNoDate.replace(/</g, '&lt;')) + '</strong>.';
+            } else if (dbDateStr) {
+                msg += ' Database start date is <strong>' + (dbFormattedNoDate.replace(/</g, '&lt;')) + '</strong>. Do you want to fill the start date in Asana with the database date?';
+            }
             content.innerHTML =
-                '<p class="deal-detail-asana-discrepancy-msg">Asana has no start date for this project.' +
-                (dbDateStr ? ' Database start date is <strong>' + (dbFormattedNoDate.replace(/</g, '&lt;')) + '</strong>. Do you want to fill the start date in Asana with the database date?' : '') +
-                '</p>' +
-                (isAdmin && dbDateStr
+                '<p class="deal-detail-asana-discrepancy-msg">' + msg + '</p>' +
+                (isAdmin && dateToUse
                     ? '<div class="deal-detail-asana-remedy-btns">' +
-                      '<button type="button" class="deal-detail-btn deal-detail-asana-fill-date" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-db-date="' + (dbDateStr || '').replace(/"/g, '&quot;') + '">Fill start date in Asana with database date</button>' +
+                      '<button type="button" class="deal-detail-btn deal-detail-asana-fill-date" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-db-date="' + (dateToUse || '').replace(/"/g, '&quot;') + '" data-procore-date="' + (procoreDateStr || '').replace(/"/g, '&quot;') + '" data-deal-pipeline-id="' + (deal.DealPipelineId || (deal._original && deal._original.DealPipelineId) || '').replace(/"/g, '&quot;') + '" data-project-id="' + (projectId != null ? String(projectId).replace(/"/g, '&quot;') : '') + '">' + (procoreDateStr ? 'Set Asana (and database if needed) to Procore start date' : 'Fill start date in Asana with database date') + '</button>' +
                       '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>' +
                       '</div>'
                     : '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>');
             wrap.style.display = 'block';
-            if (isAdmin && dbDateStr) {
+            if (isAdmin && dateToUse) {
                 modal.querySelectorAll('.deal-detail-asana-fill-date').forEach(function(btn) {
                     btn.addEventListener('click', function() {
                         var taskGid = this.getAttribute('data-task-gid');
-                        var dbDate = this.getAttribute('data-db-date');
-                        if (!taskGid || !dbDate) return;
+                        var dateToSet = this.getAttribute('data-db-date');
+                        var procoreDate = this.getAttribute('data-procore-date');
+                        var dealPipelineIdForDate = this.getAttribute('data-deal-pipeline-id');
+                        var projectIdForDate = this.getAttribute('data-project-id');
+                        if (!taskGid || !dateToSet) return;
                         if (typeof API.updateAsanaTaskStartDate !== 'function') {
                             if (typeof console !== 'undefined') console.warn('API.updateAsanaTaskStartDate not implemented');
                             return;
                         }
                         btn.disabled = true;
-                        API.updateAsanaTaskStartDate(taskGid, dbDate).then(function() {
-                            content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg">Asana Start Date set to match database.</p>' +
-                                '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>';
-                        }).catch(function(e) {
-                            btn.disabled = false;
-                            if (typeof console !== 'undefined') console.error(e);
-                        });
+                        var updateDbToo = procoreDate && dealPipelineIdForDate;
+                        function doneAsana() {
+                            API.updateAsanaTaskStartDate(taskGid, dateToSet).then(function() {
+                                content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg">Asana Start Date set to ' + (procoreDate ? 'Procore' : 'database') + ' date.</p>' +
+                                    '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>';
+                            }).catch(function(e) {
+                                btn.disabled = false;
+                                if (typeof console !== 'undefined') console.error(e);
+                            });
+                        }
+                        if (updateDbToo && typeof API.updateDealPipeline === 'function' && dealPipelineIdForDate) {
+                            API.updateDealPipeline(dealPipelineIdForDate, { StartDate: dateToSet }).then(function() {
+                                if (projectIdForDate && typeof API.updateProject === 'function') {
+                                    API.updateProject(projectIdForDate, { EstimatedConstructionStartDate: dateToSet }).then(doneAsana).catch(doneAsana);
+                                } else {
+                                    doneAsana();
+                                }
+                            }).catch(function() { doneAsana(); });
+                        } else {
+                            doneAsana();
+                        }
                     });
                 });
             }
@@ -5485,8 +5757,15 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
         const sameDay = normDb && normAsana && normDb === normAsana;
         const dbFormatted = formatDate(dbStartDate);
         const asanaFormatted = formatDate(asanaDate);
+        const procoreFormatted = procoreDateStr ? formatDate(procoreDateStr) : '';
+        const dealPipelineIdForBtn = deal.DealPipelineId || (deal._original && deal._original.DealPipelineId);
 
-        if (sameDay) {
+        // When Procore has start date 60+ days in the past, it is the only source of truth—no choice between DB and Asana
+        if (procoreDateStr) {
+            content.innerHTML =
+                '<p class="deal-detail-asana-discrepancy-msg">This project is in <strong>Procore</strong> with start date <strong>' + (procoreFormatted.replace(/</g, '&lt;')) + '</strong> (60+ days in past). Procore overrides both database and Asana—they are set to this date when the app loads.</p>' +
+                '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>';
+        } else if (sameDay) {
             content.innerHTML =
                 '<p class="deal-detail-asana-discrepancy-msg">Database and Asana start dates match (<strong>' + (dbFormatted.replace(/</g, '&lt;')) + '</strong>).</p>' +
                 '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>';
@@ -5497,7 +5776,7 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
                     ? '<p class="deal-detail-asana-remedies">Correct:</p>' +
                       '<div class="deal-detail-asana-remedy-btns">' +
                       '<button type="button" class="deal-detail-btn deal-detail-asana-override-asana" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-db-date="' + (dbDateStr || '').replace(/"/g, '&quot;') + '">Override Asana date with database date</button>' +
-                      '<button type="button" class="deal-detail-btn deal-detail-asana-override-db" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-asana-date="' + (asanaDateStr || '').replace(/"/g, '&quot;') + '">Override database date with Asana date</button>' +
+                      '<button type="button" class="deal-detail-btn deal-detail-asana-override-db" data-task-gid="' + (matchedTask.gid || '').replace(/"/g, '&quot;') + '" data-asana-date="' + (asanaDateStr || '').replace(/"/g, '&quot;') + '" data-deal-pipeline-id="' + (dealPipelineIdForBtn != null ? String(dealPipelineIdForBtn).replace(/"/g, '&quot;') : '') + '">Override database date with Asana date</button>' +
                       '<a href="' + asanaUrl + '" target="_blank" rel="noopener noreferrer" class="deal-detail-btn deal-detail-asana-view-link">View deal in Asana</a>' +
                       '</div>'
                     : '<p class="deal-detail-asana-view-only">Only admins can correct dates.</p>' +
@@ -5505,7 +5784,7 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
         }
         wrap.style.display = 'block';
 
-        if (isAdmin && !sameDay) {
+        if (isAdmin && !sameDay && !procoreDateStr) {
             const dealPipelineId = deal.DealPipelineId || (deal._original && deal._original.DealPipelineId);
             modal.querySelectorAll('.deal-detail-asana-override-asana').forEach(function(btn) {
                 btn.addEventListener('click', function() {
@@ -5527,22 +5806,55 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
             });
             modal.querySelectorAll('.deal-detail-asana-override-db').forEach(function(btn) {
                 btn.addEventListener('click', function() {
-                    const asanaDate = this.getAttribute('data-asana-date');
-                    if (!asanaDate) return;
-                    if (!dealPipelineId) {
-                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Deal pipeline ID not found; cannot update database.</p>';
+                    const asanaDateRaw = this.getAttribute('data-asana-date');
+                    const idFromBtn = this.getAttribute('data-deal-pipeline-id');
+                    const dealPipelineIdToUse = (idFromBtn != null && idFromBtn !== '') ? idFromBtn : dealPipelineId;
+                    if (!asanaDateRaw) return;
+                    if (!dealPipelineIdToUse) {
+                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Deal pipeline ID not found for this project. The database cannot be updated from this view.</p>';
                         return;
                     }
                     if (typeof API.updateDealPipeline !== 'function') return;
+                    var asanaDateNorm = (typeof toNormalizedDateString === 'function' && toNormalizedDateString(asanaDateRaw)) ? toNormalizedDateString(asanaDateRaw) : (asanaDateRaw && asanaDateRaw.trim().length >= 10 && /^\d{4}-\d{2}-\d{2}$/.test(asanaDateRaw.trim().slice(0, 10)) ? asanaDateRaw.trim().slice(0, 10) : '');
+                    if (!asanaDateNorm || !/^\d{4}-\d{2}-\d{2}$/.test(asanaDateNorm)) {
+                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Could not parse Asana date. Expected YYYY-MM-DD.</p>';
+                        return;
+                    }
                     btn.disabled = true;
-                    API.updateDealPipeline(dealPipelineId, { StartDate: asanaDate }).then(function() {
-                        deal['Start Date'] = asanaDate;
-                        deal.StartDate = asanaDate;
+                    content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg">Saving database date…</p>';
+                    var datePayload = { StartDate: asanaDateNorm };
+                    if (typeof console !== 'undefined') {
+                        console.log('[Override DB date] REQUEST →', { dealPipelineId: dealPipelineIdToUse, payload: datePayload });
+                    }
+                    API.updateDealPipeline(dealPipelineIdToUse, datePayload).then(function(response) {
+                        if (typeof console !== 'undefined') {
+                            console.log('[Override DB date] RESPONSE from database ←', response);
+                            console.log('[Override DB date] rowsUpdated:', response && response.rowsUpdated, '| message:', response && response.message);
+                            console.log('[Override DB date] saved StartDate from server:', response && response.data && (response.data.StartDate != null ? response.data.StartDate : response.data['Start Date']));
+                        }
+                        // Use server-returned date so we show what was actually saved
+                        var savedDate = (response && response.data && (response.data.StartDate != null ? response.data.StartDate : response.data['Start Date'])) ? (response.data.StartDate || response.data['Start Date']) : asanaDateNorm;
+                        var dateToShow = (typeof toNormalizedDateString === 'function' && toNormalizedDateString(savedDate)) ? toNormalizedDateString(savedDate) : (savedDate && String(savedDate).trim().slice(0, 10));
+                        if (!dateToShow) dateToShow = asanaDateNorm;
+                        deal['Start Date'] = dateToShow;
+                        deal.StartDate = dateToShow;
+                        if (deal._original) {
+                            deal._original.StartDate = dateToShow;
+                            deal._original['Start Date'] = dateToShow;
+                        }
+                        var idNum = Number(dealPipelineIdToUse);
                         if (typeof allDeals !== 'undefined' && Array.isArray(allDeals)) {
-                            const idx = allDeals.findIndex(function(d) { return (d.DealPipelineId || (d._original && d._original.DealPipelineId)) === dealPipelineId; });
+                            var idx = allDeals.findIndex(function(d) {
+                                var did = d.DealPipelineId != null ? d.DealPipelineId : (d._original && d._original.DealPipelineId != null ? d._original.DealPipelineId : null);
+                                return did != null && (Number(did) === idNum || String(did) === String(dealPipelineIdToUse));
+                            });
                             if (idx >= 0) {
-                                allDeals[idx]['Start Date'] = asanaDate;
-                                allDeals[idx].StartDate = asanaDate;
+                                allDeals[idx]['Start Date'] = dateToShow;
+                                allDeals[idx].StartDate = dateToShow;
+                                if (allDeals[idx]._original) {
+                                    allDeals[idx]._original.StartDate = dateToShow;
+                                    allDeals[idx]._original['Start Date'] = dateToShow;
+                                }
                             }
                         }
                         content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg">Database start date updated to match Asana.</p>' +
@@ -5556,30 +5868,95 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
                                     var span = items[i].querySelector('span');
                                     if (span) {
                                         try {
-                                            var d = new Date(asanaDate);
+                                            var d = new Date(dateToShow);
                                             var now = new Date();
                                             var diffDays = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
                                             var timeInfo = diffDays >= 0 ? (diffDays + ' day' + (diffDays !== 1 ? 's' : '') + ' away') : (Math.abs(diffDays) + ' day' + (Math.abs(diffDays) !== 1 ? 's' : '') + ' ago');
-                                            span.innerHTML = formatDate(asanaDate) + ' <span class="time-info">(' + timeInfo + ')</span>';
+                                            span.innerHTML = formatDate(dateToShow) + ' <span class="time-info">(' + timeInfo + ')</span>';
                                         } catch (e) {
-                                            span.textContent = formatDate(asanaDate);
+                                            span.textContent = formatDate(dateToShow);
                                         }
                                     }
                                     break;
                                 }
                             }
                         }
+                        // Refetch deals from API and re-render list so the list shows the saved date
+                        (function refetchDealsAfterDateOverride() {
+                            if (typeof API.getAllDealPipelines !== 'function') return;
+                            API.getAllDealPipelines().then(function(refreshResponse) {
+                                if (!refreshResponse.success || !refreshResponse.data) return;
+                                var dbDeals = refreshResponse.data;
+                                var loansPromise = typeof API.getAllLoans === 'function' ? API.getAllLoans() : Promise.resolve({ success: false });
+                                var banksPromise = typeof API.getAllBanks === 'function' ? API.getAllBanks() : Promise.resolve({ success: false });
+                                Promise.all([loansPromise, banksPromise]).then(function(results) {
+                                    var loansMap = {};
+                                    var banksMap = {};
+                                    if (results[0] && results[0].success && results[0].data) {
+                                        results[0].data.forEach(function(loan) {
+                                            if (loan.ProjectId) {
+                                                if (!loansMap[loan.ProjectId]) loansMap[loan.ProjectId] = [];
+                                                loansMap[loan.ProjectId].push(loan);
+                                            }
+                                        });
+                                    }
+                                    if (results[1] && results[1].success && results[1].data) {
+                                        results[1].data.forEach(function(bank) {
+                                            if (bank.BankId) banksMap[bank.BankId] = bank;
+                                        });
+                                    }
+                                    var mapped = dbDeals.map(function(d) { return mapDealPipelineDataToDeal(d, loansMap, banksMap); }).filter(function(d) { return d !== null; });
+                                    var filtered = mapped.filter(function(d) {
+                                        var stage = normalizeStage(d.Stage || d.stage);
+                                        return stage !== 'HoldCo' && stage.toLowerCase() !== 'holdco';
+                                    });
+                                    if (typeof allDeals !== 'undefined' && Array.isArray(filtered)) {
+                                        allDeals.length = 0;
+                                        filtered.forEach(function(d) { allDeals.push(d); });
+                                        if (typeof window !== 'undefined') window.allDeals = allDeals;
+                                        if (typeof buildBankNameMap === 'function') buildBankNameMap(allDeals);
+                                        if (typeof renderDealList === 'function') renderDealList(allDeals);
+                                    }
+                                }).catch(function() {});
+                            }).catch(function() {});
+                        })();
                     }).catch(function(e) {
                         btn.disabled = false;
-                        var errMsg = (e && (e.message || e.error && e.error.message)) ? (e.message || e.error.message) : 'Update failed';
-                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Database update failed: ' + String(errMsg).replace(/</g, '&lt;') + '</p>';
-                        if (typeof console !== 'undefined') console.error(e);
+                        var errMsg = (e && (e.message || (e.error && e.error.message))) ? (e.message || e.error.message) : 'Update failed';
+                        var hint = (errMsg && (errMsg.indexOf('401') !== -1 || errMsg.toLowerCase().indexOf('unauthorized') !== -1)) ? ' Check that you are logged in.' : '';
+                        if (errMsg && errMsg.indexOf('fetch') !== -1) hint = ' Check your connection and that the API URL is correct.';
+                        content.innerHTML = '<p class="deal-detail-asana-discrepancy-msg deal-detail-asana-error">Database update failed: ' + String(errMsg).replace(/</g, '&lt;') + hint + '</p>';
+                        if (typeof console !== 'undefined') console.error('Override database date failed', e);
                     });
                 });
             });
         }
         buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmin);
     }).catch(function() {});
+}
+
+// Build ordered list of deals for Previous/Next nav from current view (list, timeline, or upcoming-dates)
+function getDealDetailNavList(deal) {
+    var container = document.getElementById('deal-list-container');
+    var all = (typeof allDeals !== 'undefined' ? allDeals : []);
+    var navList = [];
+    if (container) {
+        var rows = container.querySelectorAll('.deal-row[data-deal-name]');
+        if (!rows.length) rows = container.querySelectorAll('.timeline-card[data-deal-name]');
+        if (!rows.length) rows = container.querySelectorAll('.upcoming-date-row[data-deal-name]');
+        for (var i = 0; i < rows.length; i++) {
+            var name = rows[i].getAttribute('data-deal-name');
+            if (name) {
+                var d = all.find(function(o) { return (o.Name || o.name) === name; });
+                if (d) navList.push(d);
+            }
+        }
+    }
+    if (navList.length === 0 && all.length) navList = all.slice();
+    var currentId = deal.DealPipelineId || (deal._original && deal._original.DealPipelineId);
+    var idx = navList.findIndex(function(d) { return (d.DealPipelineId || (d._original && d._original.DealPipelineId)) === currentId; });
+    if (idx < 0) idx = navList.findIndex(function(d) { return (d.Name || d.name) === (deal.Name || deal.name); });
+    return { list: navList, index: idx, prev: idx > 0 ? navList[idx - 1] : null, next: idx >= 0 && idx < navList.length - 1 ? navList[idx + 1] : null };
 }
 
 // Show deal detail page
@@ -5614,6 +5991,10 @@ function showDealDetail(deal) {
             // Date parsing failed
         }
     }
+    const startDateControlledByProcore = !!(deal._procoreOverridesStartDate || (deal['Start Date Source'] && String(deal['Start Date Source']).toLowerCase() === 'procore'));
+    
+    var nav = getDealDetailNavList(deal);
+    var navPosition = nav.list.length && nav.index >= 0 ? (nav.index + 1) + ' of ' + nav.list.length : '';
     
     const modal = document.createElement('div');
     modal.className = 'deal-detail-modal';
@@ -5621,8 +6002,16 @@ function showDealDetail(deal) {
         <div class="deal-detail-overlay"></div>
         <div class="deal-detail-content">
             <div class="deal-detail-header">
+                <div class="deal-detail-nav">
+                    <button type="button" class="deal-detail-nav-btn deal-detail-prev" ${nav.prev ? '' : ' disabled'} aria-label="Previous deal">‹ Previous</button>
+                    <span class="deal-detail-nav-position">${navPosition}</span>
+                    <button type="button" class="deal-detail-nav-btn deal-detail-next" ${nav.next ? '' : ' disabled'} aria-label="Next deal">Next ›</button>
+                </div>
                 <h2>${deal.Name || deal.name || 'Unnamed Deal'}</h2>
-                <button class="deal-detail-close" aria-label="Close">&times;</button>
+                <div class="deal-detail-header-actions">
+                    ${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '<button type="button" class="deal-detail-edit-btn deal-edit-btn-small" aria-label="Edit deal">Edit</button>' : ''}
+                    <button class="deal-detail-close" aria-label="Close">&times;</button>
+                </div>
             </div>
             <div class="deal-detail-body">
                 <div class="deal-detail-section">
@@ -5671,7 +6060,7 @@ function showDealDetail(deal) {
                         ${startDate ? `
                         <div class="deal-detail-item">
                             <label>Start Date</label>
-                            <span>${formatDate(startDate)}${timeInfo ? ` <span class="time-info">(${timeInfo})</span>` : ''}</span>
+                            <span>${formatDate(startDate)}${timeInfo ? ` <span class="time-info">(${timeInfo})</span>` : ''}${startDateControlledByProcore ? ' <span class="deal-detail-procore-note">(controlled by Procore)</span>' : ''}</span>
                         </div>
                         ` : ''}
                     </div>
@@ -6296,25 +6685,48 @@ function showDealDetail(deal) {
         filesSection.querySelectorAll('.deal-detail-files-upload').forEach(function (el) { el.style.display = 'none'; });
     }
     
-    // Close handlers
-    modal.querySelector('.deal-detail-overlay').addEventListener('click', () => {
-        modal.remove();
-    });
-    
-    loadDealDetailAsanaDiscrepancy(modal, deal);
-
-    modal.querySelector('.deal-detail-close').addEventListener('click', () => {
-        modal.remove();
-    });
-    
-    // Close on Escape key
+    // Close on Escape key (must remove listener when modal closes in any way)
     const escapeHandler = (e) => {
         if (e.key === 'Escape') {
-            modal.remove();
             document.removeEventListener('keydown', escapeHandler);
+            modal.remove();
         }
     };
     document.addEventListener('keydown', escapeHandler);
+    
+    const closeModal = () => {
+        document.removeEventListener('keydown', escapeHandler);
+        modal.remove();
+    };
+    
+    // Close handlers
+    modal.querySelector('.deal-detail-overlay').addEventListener('click', closeModal);
+    modal.querySelector('.deal-detail-close').addEventListener('click', closeModal);
+    
+    // Admin Edit: open deal edit modal (edit in place — close view so edit is the only layer)
+    var editBtn = modal.querySelector('.deal-detail-edit-btn');
+    if (editBtn) {
+        editBtn.addEventListener('click', function() {
+            closeModal();
+            if (typeof window.openDealEditModal === 'function') window.openDealEditModal(deal);
+        });
+    }
+    
+    loadDealDetailAsanaDiscrepancy(modal, deal);
+    
+    // Previous/Next deal navigation
+    if (nav.prev) {
+        modal.querySelector('.deal-detail-prev').addEventListener('click', function() {
+            closeModal();
+            showDealDetail(nav.prev);
+        });
+    }
+    if (nav.next) {
+        modal.querySelector('.deal-detail-next').addEventListener('click', function() {
+            closeModal();
+            showDealDetail(nav.next);
+        });
+    }
 }
 
 // Show notes modal
@@ -7654,10 +8066,28 @@ function updateEditModeUI() {
 // CRUD OPERATIONS
 // ============================================================
 
+/**
+ * Parse the rejection reason from deal Notes. Looks for "Rejection reason:" or "Rejected reason:"
+ * and returns the text on the same line after the colon, or the line(s) after until a blank line.
+ * @param {string} notes - Full notes text
+ * @returns {string} Extracted reason or ''
+ */
+function parseRejectionReasonFromNotes(notes) {
+    if (!notes || typeof notes !== 'string') return '';
+    const re = /Reject(?:ion|ed)\s+reason:\s*(?:\r?\n)?/i;
+    const match = notes.match(re);
+    if (!match) return '';
+    const after = notes.slice(notes.indexOf(match[0]) + match[0].length);
+    const trimmed = after.trimStart();
+    const blankLine = trimmed.search(/\n\s*\n/);
+    const reason = (blankLine >= 0 ? trimmed.slice(0, blankLine) : trimmed).trim();
+    return reason;
+}
+
 // Make functions globally accessible for inline onclick handlers
 window.openDealEditModal = async function(deal) {
-    if (!isAuthenticated || !isEditMode) {
-        alert('Please login and enable edit mode to edit deals.');
+    if (!isAuthenticated) {
+        alert('Please log in to edit deals.');
         return;
     }
     
@@ -7710,7 +8140,15 @@ window.openDealEditModal = async function(deal) {
     // Populate form with all fields
     const original = deal._original || deal;
     document.getElementById('edit-project-name').value = deal.Name || original.ProjectName || '';
-    document.getElementById('edit-stage').value = deal.Stage || original.Stage || 'Prospective';
+    const stageVal = deal.Stage || original.Stage || 'Prospective';
+    document.getElementById('edit-stage').value = stageVal;
+    const rejectionWrap = document.getElementById('edit-rejection-reason-wrap');
+    const rejectionInput = document.getElementById('edit-rejection-reason');
+    if (rejectionWrap) rejectionWrap.style.display = stageVal === 'Rejected' ? 'block' : 'none';
+    if (rejectionInput) {
+        const notesForRejection = (deal.Notes || original.Notes || '').trim();
+        rejectionInput.value = stageVal === 'Rejected' ? parseRejectionReasonFromNotes(notesForRejection) : '';
+    }
     document.getElementById('edit-city').value = original.City || '';
     document.getElementById('edit-state').value = original.State || '';
     document.getElementById('edit-region').value = original.Region || '';
@@ -7788,6 +8226,18 @@ window.openDealEditModal = async function(deal) {
         landPriceField.addEventListener('input', calculateSqFtPrice);
     }
     
+    // Show/hide rejection reason when stage is Rejected
+    const editStageSelect = document.getElementById('edit-stage');
+    const editRejectionWrap = document.getElementById('edit-rejection-reason-wrap');
+    const editRejectionInput = document.getElementById('edit-rejection-reason');
+    function toggleRejectionReason() {
+        const isRejected = editStageSelect && editStageSelect.value === 'Rejected';
+        if (editRejectionWrap) editRejectionWrap.style.display = isRejected ? 'block' : 'none';
+        if (editRejectionInput && !isRejected) editRejectionInput.value = '';
+    }
+    editStageSelect.removeEventListener('change', toggleRejectionReason);
+    editStageSelect.addEventListener('change', toggleRejectionReason);
+    
     modal.style.display = 'flex';
 }
 
@@ -7816,8 +8266,8 @@ async function handleDealSave(e) {
     errorDiv.style.display = 'none';
     errorDiv.textContent = '';
     
-    if (!isAuthenticated || !isEditMode) {
-        errorDiv.textContent = 'You must be logged in and in edit mode to save deals.';
+    if (!isAuthenticated) {
+        errorDiv.textContent = 'You must be logged in to save deals.';
         errorDiv.style.display = 'block';
         return;
     }
@@ -7861,9 +8311,24 @@ async function handleDealSave(e) {
         }
     }
     
+    const stageVal = form['edit-stage'].value;
+    let notesVal = form['edit-notes'].value.trim() || null;
+    if (stageVal === 'Rejected') {
+        const rejectionReasonEl = document.getElementById('edit-rejection-reason');
+        const rejectionReason = rejectionReasonEl ? rejectionReasonEl.value.trim() : '';
+        if (!rejectionReason) {
+            errorDiv.textContent = 'Please enter a rejection reason when stage is Rejected.';
+            errorDiv.style.display = 'block';
+            if (rejectionReasonEl) rejectionReasonEl.focus();
+            return;
+        }
+        const rejectionLine = 'Rejection reason: ' + rejectionReason;
+        notesVal = notesVal ? (rejectionLine + '\n\n' + notesVal) : rejectionLine;
+    }
+    
     const formData = {
         ProjectName: projectName,
-        Stage: form['edit-stage'].value,
+        Stage: stageVal,
         City: form['edit-city'].value.trim() || null,
         State: form['edit-state'].value.trim().toUpperCase() || null,
         Region: form['edit-region'].value.trim() || null,
@@ -7884,7 +8349,7 @@ async function handleDealSave(e) {
         Cash: form['edit-cash'].checked,
         OpportunityZone: form['edit-opportunity-zone'].checked,
         PreConManagerId: form['edit-precon-manager'].value ? parseInt(form['edit-precon-manager'].value) : null,
-        Notes: form['edit-notes'].value.trim() || null,
+        Notes: notesVal,
         ClosingNotes: form['edit-closing-notes'].value.trim() || null,
         BrokerReferralContactId: form['edit-broker-referral-id'] && form['edit-broker-referral-id'].value ? parseInt(form['edit-broker-referral-id'].value) : null,
         PriceRaw: form['edit-price-raw'] && form['edit-price-raw'].value ? form['edit-price-raw'].value.trim() : null,
@@ -7903,9 +8368,10 @@ async function handleDealSave(e) {
     
     try {
         let result;
-        if (currentEditingDeal && currentEditingDeal.DealPipelineId) {
+        const dealPipelineIdForUpdate = currentEditingDeal && (currentEditingDeal.DealPipelineId || (currentEditingDeal._original && currentEditingDeal._original.DealPipelineId));
+        if (dealPipelineIdForUpdate) {
             // Update existing deal
-            result = await API.updateDealPipeline(currentEditingDeal.DealPipelineId, formData);
+            result = await API.updateDealPipeline(dealPipelineIdForUpdate, formData);
         } else {
             // Create new deal - need ProjectId
             if (!currentEditingDeal || !currentEditingDeal.ProjectId) {
@@ -7952,6 +8418,11 @@ async function handleDealSave(e) {
             closeDealEditModal();
             // Reload deals
             await init();
+            // If Core Data Management (pipeline) view is visible, refresh the table so edits show
+            const pipelineView = document.getElementById('deal-pipeline-view');
+            if (pipelineView && pipelineView.style.display !== 'none') {
+                renderDealPipelineTable();
+            }
         } else {
             throw new Error(result.error?.message || 'Failed to save deal');
         }
@@ -8254,6 +8725,9 @@ async function renderDealPipelineTable() {
             });
         }
         
+        // Map of dealId -> deal for Edit button (so full edit modal can open with correct data)
+        window._dealPipelineDealsForEdit = {};
+        
         // Sort deals
         const stageOrder = [...STAGE_DISPLAY_ORDER];
         dealsToRender = [...dealsToRender].sort((a, b) => {
@@ -8323,6 +8797,11 @@ async function renderDealPipelineTable() {
             }
             const hasProcore = procoreMatch && procoreMatch.hasProcore === true;
             
+            // Store for Edit button: full deal with _original so edit modal has all fields
+            if (dealId) {
+                window._dealPipelineDealsForEdit[dealId] = { ...deal, _original: dbDeal };
+            }
+            
             // Format dates
             const formatDateInput = (date) => {
                 if (!date) return '';
@@ -8388,7 +8867,7 @@ async function renderDealPipelineTable() {
             const regionTitle = regionReadonly ? 'Data Source: Procore\n\nThis field is automatically synced from Procore and cannot be edited here. To update this value, modify it in Procore.' : '';
             const latitudeTitle = latitudeReadonly ? 'Data Source: Procore\n\nThis field is automatically synced from Procore and cannot be edited here. To update this value, modify it in Procore.' : 'Enter latitude manually if not linked to Procore. If linked, value comes from Procore.';
             const longitudeTitle = longitudeReadonly ? 'Data Source: Procore\n\nThis field is automatically synced from Procore and cannot be edited here. To update this value, modify it in Procore.' : 'Enter longitude manually if not linked to Procore. If linked, value comes from Procore.';
-            const startDateTitle = startDateReadonly ? 'Data Source: Procore (actual start 30+ days in past)\n\nThis field is synced from Procore and cannot be edited here. Otherwise start date is entered in Deal Pipeline.' : 'Start date is controlled by Deal Pipeline. Procore overrides only when actual start is 30+ days in the past.';
+            const startDateTitle = startDateReadonly ? 'Data Source: Procore (actual start 60+ days in past)\n\nThis field is synced from Procore and cannot be edited here. Otherwise start date is entered in Deal Pipeline.' : 'Start date is controlled by Deal Pipeline. Procore overrides only when actual start is 60+ days in the past.';
             const unitCountTitle = unitCountReadonly ? 'Data Source: Procore\n\nThis field is automatically synced from Procore and cannot be edited here. To update this value, modify it in Procore.' : '';
             
             html += `
@@ -8403,6 +8882,7 @@ async function renderDealPipelineTable() {
                             <option value="Lease-Up" ${deal.Stage === 'Lease-Up' ? 'selected' : ''}>Lease-Up</option>
                             <option value="Stabilized" ${deal.Stage === 'Stabilized' ? 'selected' : ''}>Stabilized</option>
                             <option value="Liquidated" ${deal.Stage === 'Liquidated' ? 'selected' : ''}>Liquidated</option>
+                            <option value="Rejected" ${deal.Stage === 'Rejected' ? 'selected' : ''}>Rejected</option>
                             <option value="Dead" ${deal.Stage === 'Dead' ? 'selected' : ''}>Dead</option>
                         </select>
                     </td>
@@ -8491,6 +8971,7 @@ async function renderDealPipelineTable() {
                     <td><input type="text" class="deal-pipeline-field" data-field="County" value="${(deal.CountyParish || deal.County || '').replace(/"/g, '&quot;')}" placeholder="County/Parish" style="min-width: 100px;" title="County or Parish" /></td>
                     <td><textarea class="deal-pipeline-field" data-field="Notes" rows="4" style="min-width: 300px; width: 100%;">${(deal.Notes || deal.ClosingNotes || '').replace(/"/g, '&quot;')}</textarea></td>
                     <td class="deal-pipeline-actions">
+                        ${dealId ? `<button type="button" class="edit-form-btn" data-deal-id="${dealId}" title="Open full edit form for all fields">Edit</button>` : ''}
                         <button class="save-btn" onclick="saveDealPipelineRow(event, '${dealId || 'new'}', '${projectId || ''}')" title="Save changes to this deal">Save</button>
                         ${dealId ? `<button class="delete-btn" onclick="deleteDealPipelineRow('${dealId}')" title="Delete this deal (cannot be undone)">Delete</button>` : ''}
                     </td>
@@ -8557,6 +9038,18 @@ async function renderDealPipelineTable() {
         
         // Bind change listeners to track changes
         bindDealPipelineFieldListeners();
+        
+        // Edit button: open full edit modal (user-friendly form view)
+        container.querySelectorAll('.edit-form-btn').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                const id = this.getAttribute('data-deal-id');
+                const d = window._dealPipelineDealsForEdit && window._dealPipelineDealsForEdit[id];
+                if (d && typeof window.openDealEditModal === 'function') {
+                    window.openDealEditModal(d);
+                }
+            });
+        });
         
         // Initialize searchable selects for Pre-Con Manager and Broker/Referral
         initializeSearchableSelects(preConManagers);

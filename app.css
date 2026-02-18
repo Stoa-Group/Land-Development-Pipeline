@@ -3554,10 +3554,47 @@ body.map-fullscreen-active {
 }
 
 .deal-detail-header h2 {
-    margin: 0;
+    margin: 0 12px;
     font-size: 24px;
     font-weight: 600;
     color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+}
+
+.deal-detail-nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.deal-detail-nav-btn {
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--primary-green);
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+}
+
+.deal-detail-nav-btn:hover:not(:disabled) {
+    background: var(--hover-bg);
+    border-color: var(--primary-green);
+}
+
+.deal-detail-nav-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.deal-detail-nav-position {
+    font-size: 13px;
+    color: var(--text-secondary);
+    min-width: 4ch;
 }
 
 .deal-detail-close {
@@ -3579,6 +3616,30 @@ body.map-fullscreen-active {
 .deal-detail-close:hover {
     background-color: var(--hover-bg);
     color: var(--text-primary);
+}
+
+.deal-detail-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.deal-detail-edit-btn {
+    padding: 8px 14px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--primary-green);
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.deal-detail-edit-btn:hover {
+    background: var(--hover-bg);
+    border-color: var(--primary-green);
 }
 
 .deal-detail-body {
@@ -4370,6 +4431,20 @@ body.map-fullscreen-active {
     font-weight: normal;
 }
 
+.deal-detail-item .deal-detail-procore-note {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: normal;
+    font-style: italic;
+}
+
+.date-source-procore {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: normal;
+    white-space: nowrap;
+}
+
 .deal-detail-notes {
     background: var(--bg-secondary);
     border-radius: 8px;
@@ -4457,6 +4532,11 @@ body.map-fullscreen-active {
     align-items: center;
     justify-content: center;
     padding: 20px;
+}
+
+/* Edit deal modal must sit above deal detail (view) modal for edit-in-place from deal view */
+#deal-edit-modal {
+    z-index: 10500;
 }
 
 .modal-content {
@@ -5341,6 +5421,21 @@ select.deal-pipeline-field.external-source-field[disabled] {
     background-color: #6b7a5a;
 }
 
+.deal-pipeline-table .edit-form-btn {
+    padding: 6px 12px;
+    background-color: transparent;
+    color: var(--primary-green, #4a7c59);
+    border: 1px solid var(--primary-green, #4a7c59);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-right: 6px;
+}
+
+.deal-pipeline-table .edit-form-btn:hover {
+    background-color: rgba(74, 124, 89, 0.08);
+}
+
 .deal-pipeline-table .cancel-new-deal-btn {
     padding: 6px 12px;
     background-color: transparent;
@@ -5554,4 +5649,21 @@ select.deal-pipeline-field.external-source-field[disabled] {
     .bank-details-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* Performance: scroll containers for mobile/desktop */
+.scroll-container,
+.table-wrap,
+.modal-body,
+.overflow-auto,
+.overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+  contain: layout style paint;
+}
+@media (hover: none) {
+  .scroll-container,
+  .table-wrap,
+  .modal-body {
+    touch-action: pan-y;
+  }
 }
