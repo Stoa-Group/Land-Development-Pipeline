@@ -2642,11 +2642,11 @@
  * Download or open a banking file using the current auth token (for use when user clicks the file).
  * Fetches with Bearer token, then opens the file in a new tab (or triggers download with filename).
  * @param {number} attachmentId - BankingFileId
- * @param {{ openInNewTab?: boolean, projectName?: string }} options - openInNewTab: true = open in new tab (default); false = trigger download. projectName: prepend to filename as "filename - projectName"
+ * @param {{ openInNewTab?: boolean, projectName?: string, fileName?: string }} options - openInNewTab, projectName (for download name), fileName (actual file name when header unavailable)
  * @returns {Promise<void>}
  */
   async function downloadBankingFile(attachmentId, options = {}) {
-  const { openInNewTab = true, projectName } = options;
+  const { openInNewTab = true, projectName, fileName: providedFileName } = options;
   const token = authToken;
   if (!token) {
     throw new Error('Not authenticated. Call login() or setAuthToken() before downloading files.');
@@ -2662,9 +2662,13 @@
   const blob = await response.blob();
   let filename = (response.headers.get('Content-Disposition') || '').match(/filename\*?=(?:UTF-8'')?["']?([^"'\s;]+)["']?/i)?.[1]
     || response.headers.get('X-File-Name')
+    || (typeof providedFileName === 'string' && providedFileName.trim() ? providedFileName.trim() : null)
     || `banking-file-${attachmentId}`;
+  if (filename && filename !== providedFileName) {
+    try { filename = decodeURIComponent(filename); } catch (_) {}
+  }
   if (projectName && typeof projectName === 'string' && projectName.trim()) {
-    const base = decodeURIComponent(filename);
+    const base = filename;
     const ext = base.includes('.') ? base.slice(base.lastIndexOf('.')) : '';
     const nameWithoutExt = base.includes('.') ? base.slice(0, base.lastIndexOf('.')) : base;
     const safeProj = String(projectName).trim().replace(/[/\\?*:|"<>]/g, '-');
@@ -2674,7 +2678,7 @@
   const doDownload = function() {
     const a = document.createElement('a');
     a.href = blobUrl;
-    a.download = decodeURIComponent(filename);
+    a.download = filename;
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
