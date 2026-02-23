@@ -6151,10 +6151,10 @@ function loadDealDetailAsanaDiscrepancy(modal, deal) {
                                 }
                             }
                         }
-                        // Refetch deals from API and re-render list so the list shows the saved date
+                        // Refetch from API (not Domo) so we get instant fresh data after save
                         (function refetchDealsAfterDateOverride() {
                             if (typeof API.getAllDealPipelines !== 'function') return;
-                            API.getAllDealPipelines().then(function(refreshResponse) {
+                            API.getAllDealPipelines({ forceApi: true }).then(function(refreshResponse) {
                                 if (!refreshResponse.success || !refreshResponse.data) return;
                                 var dbDeals = refreshResponse.data;
                                 var loansPromise = typeof API.getAllLoans === 'function' ? API.getAllLoans() : Promise.resolve({ success: false });
@@ -8930,15 +8930,14 @@ function hideDealPipelineView() {
     switchView(currentView, allDeals);
 }
 
-async function renderDealPipelineTable() {
+async function renderDealPipelineTable(opts) {
     const container = document.getElementById('deal-pipeline-table-container');
     if (!container) return;
     
     container.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
     
     try {
-        // Get all deals
-        const response = await API.getAllDealPipelines();
+        const response = await API.getAllDealPipelines(opts && opts.forceApi ? { forceApi: true } : undefined);
         if (!response.success) {
             throw new Error(response.error?.message || 'Failed to load deals');
         }
@@ -9787,12 +9786,12 @@ async function saveAllDealPipelineRows() {
         alert(`Successfully saved ${successCount} deal${successCount !== 1 ? 's' : ''}!`);
         
         // Refresh data from database
-        // Refresh the deal pipeline table (fetches fresh data from API)
-        await renderDealPipelineTable();
+        // Refresh the deal pipeline table (use API for instant fresh data after save)
+        await renderDealPipelineTable({ forceApi: true });
         
         // Also refresh the main allDeals array for other views
         try {
-            const refreshResponse = await API.getAllDealPipelines();
+            const refreshResponse = await API.getAllDealPipelines({ forceApi: true });
             if (refreshResponse.success) {
                 const dbDeals = refreshResponse.data || [];
                 
@@ -9854,7 +9853,7 @@ async function saveAllDealPipelineRows() {
         const errorMsg = `Saved ${successCount} deal${successCount !== 1 ? 's' : ''}, but ${errorCount} error${errorCount !== 1 ? 's' : ''} occurred:\n\n${errors.join('\n')}`;
         alert(errorMsg);
         // Still refresh even if there were some errors
-        await renderDealPipelineTable();
+        await renderDealPipelineTable({ forceApi: true });
     }
 }
 
@@ -10987,12 +10986,12 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
             }
             
             // Refresh data from database
-            // Refresh the deal pipeline table (fetches fresh data from API)
-            await renderDealPipelineTable();
+            // Refresh the deal pipeline table (use API for instant fresh data after save)
+            await renderDealPipelineTable({ forceApi: true });
             
-            // Also refresh the main allDeals array for other views
+            // Also refresh the main allDeals array for other views (use API for instant fresh data)
             try {
-                const refreshResponse = await API.getAllDealPipelines();
+                const refreshResponse = await API.getAllDealPipelines({ forceApi: true });
                 if (refreshResponse.success) {
                     const dbDeals = refreshResponse.data || [];
                     
@@ -11071,8 +11070,8 @@ window.deleteDealPipelineRow = async function(dealId) {
         const result = await API.deleteDealPipeline(dealId);
         if (result.success) {
             alert('Deal deleted successfully!');
-            // Refresh the table
-            await renderDealPipelineTable();
+            // Refresh the table (use API for instant fresh data after delete)
+            await renderDealPipelineTable({ forceApi: true });
         } else {
             throw new Error(result.error?.message || 'Failed to delete deal');
         }
@@ -11419,11 +11418,10 @@ async function performExport(selectedStages, exportType) {
         }
 
         try {
-            // Refresh data from API before exporting
+            // Refresh data from API before exporting (use API for latest data)
             console.log('Refreshing deal pipeline data before export...');
             
-            // Fetch fresh deals from database
-            const response = await API.getAllDealPipelines();
+            const response = await API.getAllDealPipelines({ forceApi: true });
             if (!response.success) {
                 throw new Error(response.error?.message || 'Failed to refresh deals');
             }

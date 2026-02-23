@@ -2658,13 +2658,15 @@
  * - BrokerReferralContactId, PriceRaw, ListingStatus, Zoning, County, CoordinateSource
  * - BrokerReferralContactName, BrokerReferralContactEmail, BrokerReferralContactPhone (joined)
  * 
+ * @param {object} [options] - Optional: { forceApi: true } to skip Domo and fetch from API (use after create/update/delete for instant fresh data)
  * @returns {Promise<object>} { success: true, data: [...] }
  * @example
  * const result = await getAllDealPipelines();
- * console.log('Deals:', result.data);
+ * const fresh = await getAllDealPipelines({ forceApi: true }); // after save
  */
-  async function getAllDealPipelines() {
-  if (isDomoEnvironment()) {
+  async function getAllDealPipelines(options) {
+  var forceApi = options && options.forceApi === true;
+  if (!forceApi && isDomoEnvironment()) {
     try {
       return await getAllDealPipelinesFromDomo();
     } catch (e) {

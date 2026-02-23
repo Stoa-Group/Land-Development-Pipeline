@@ -25,23 +25,26 @@ jobs:
 
       - name: Login to Domo
         env:
-          DOMO_INSTANCE: ${{ secrets.DOMO_INSTANCE }}
+          DOMO_INSTANCE: ${{ secrets.DOMO_INSTANCE || 'stoagroup.domo.com' }}
           DOMO_TOKEN: ${{ secrets.DOMO_TOKEN }}
           DOMO_CLIENT_ID: ${{ secrets.DOMO_CLIENT_ID }}
           DOMO_CLIENT_SECRET: ${{ secrets.DOMO_CLIENT_SECRET }}
         run: |
-          if [ -n "$DOMO_TOKEN" ]; then
-            domo login -i "$DOMO_INSTANCE" -t "$DOMO_TOKEN"
-          elif [ -n "$DOMO_CLIENT_ID" ] && [ -n "$DOMO_CLIENT_SECRET" ]; then
+          # Prefer DOMO_CLIENT_ID + DOMO_CLIENT_SECRET (org secrets)
+          if [ -n "$DOMO_CLIENT_ID" ] && [ -n "$DOMO_CLIENT_SECRET" ]; then
+            echo "Using client credentials..."
             TOKEN=$(curl -s -X GET "https://api.domo.com/oauth/token?grant_type=client_credentials&scope=data%20user%20dashboard%20audit" \
               -u "${DOMO_CLIENT_ID}:${DOMO_CLIENT_SECRET}" | jq -r '.access_token')
             if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-              echo "Failed to get access token from client credentials"
+              echo "::error::Failed to get Domo access token. Check DOMO_CLIENT_ID and DOMO_CLIENT_SECRET."
               exit 1
             fi
             domo login -i "$DOMO_INSTANCE" -t "$TOKEN"
+          elif [ -n "$DOMO_TOKEN" ]; then
+            echo "Using DOMO_TOKEN..."
+            domo login -i "$DOMO_INSTANCE" -t "$DOMO_TOKEN"
           else
-            echo "Set either DOMO_TOKEN or DOMO_CLIENT_ID+DOMO_CLIENT_SECRET in repo/org secrets"
+            echo "::error::Set DOMO_CLIENT_ID and DOMO_CLIENT_SECRET. If using org secrets, ensure this repo has access (private repos may need repo-level secrets)."
             exit 1
           fi
 
