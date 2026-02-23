@@ -26,6 +26,7 @@
             <img src="Logos/STOA20-Logo-Mark-Green.jpg" alt="STOA" class="stoa-logo" />
             <span class="project-title">Deal Pipeline (Beta)</span>
             <span id="admin-badge" class="admin-badge" style="display: none;" title="You can edit and use Deal Pipeline / Edit Mode">ADMIN logged in</span>
+            <span id="other-admins-viewing" class="other-admins-viewing" style="display: none;" title="Others currently viewing this dashboard (only visible when logged in)"></span>
             <div class="header-actions" id="header-actions" style="display: none;">
               <button class="export-pipeline-btn" id="export-pipeline-btn" title="Export Pipeline to Excel">Export Pipeline</button>
               <div id="auth-actions" style="display: none;">
@@ -42,7 +43,6 @@
             <button class="nav-tab" data-view="timeline">Timeline</button>
             <button class="nav-tab" data-view="upcoming-dates">Upcoming Dates</button>
             <button class="nav-tab" data-view="units">Unit Summary</button>
-            <button class="nav-tab" data-view="files">Deal Files</button>
             <button class="nav-tab" data-view="contacts">Contacts</button>
           </div>
         </div>
@@ -80,6 +80,13 @@
           <div class="filter-group">
           </div>
           <div class="filter-group">
+            <label>Date Added:</label>
+            <select id="date-added-filter" class="filter-select">
+              <option value="1y">Last 1 year</option>
+              <option value="unlimited">Unlimited</option>
+            </select>
+          </div>
+          <div class="filter-group">
             <label>Search:</label>
             <input type="text" id="search-filter" class="filter-search" placeholder="Search deals...">
           </div>
@@ -108,7 +115,6 @@
         <div class="list-view-container">
           <!-- List View Toggle -->
           <div class="list-view-toggle" id="list-view-toggle" style="display: none;">
-            <button class="toggle-btn" data-mode="timeline">By Quarter/Year</button>
             <button class="toggle-btn" data-mode="stage">By Stage</button>
             <button class="toggle-btn" data-mode="product">By Product Type</button>
             <button class="toggle-btn" data-mode="bank">By Bank</button>
@@ -267,6 +273,18 @@
               <div class="form-group">
                 <label for="edit-region">Region:</label>
                 <input type="text" id="edit-region" name="Region" placeholder="e.g., Gulf Coast">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="edit-latitude">Latitude (for map):</label>
+                <input type="number" step="any" id="edit-latitude" name="Latitude" placeholder="e.g., 30.45">
+                <small style="display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px;">Required for map pin. Or upload a .kmz file in the Land section.</small>
+              </div>
+              <div class="form-group">
+                <label for="edit-longitude">Longitude (for map):</label>
+                <input type="number" step="any" id="edit-longitude" name="Longitude" placeholder="e.g., -90.12">
+                <small style="display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px;">Required for map pin.</small>
               </div>
             </div>
             <div class="form-row">

@@ -709,19 +709,25 @@ let currentFilters = {
     search: '', // Search/filter text
     year: '', // Year filter (replaces exact date ranges)
     timelineStartDate: null, // For timeline date range filter (kept for timeline view)
-    timelineEndDate: null    // null means no end date (unlimited)
+    timelineEndDate: null,   // null means no end date (unlimited)
+    dateAddedRange: '1y'     // '1y' = deals added in last year (default), 'unlimited' = no filter
 };
 let currentSort = { by: 'date', order: 'asc' }; // Default to ascending (oldest first)
 let blockSort = { by: 'date', order: 'asc' }; // Sort within blocks (year/quarter groups)
-let listViewMode = 'timeline'; // 'timeline' | 'stage' | 'product' | 'bank' - list view grouping
+let listViewMode = 'stage'; // 'stage' | 'product' | 'bank' - list view grouping (quarter view is in Timeline tab)
 window.productTypeSort = window.productTypeSort || { by: 'name', order: 'asc' }; // Sort config for product type view
 window.bankSort = window.bankSort || { by: 'name', order: 'asc' }; // Sort config for bank view
 window.listViewSort = window.listViewSort || { by: 'name', order: 'asc' }; // Sort config for list view (stage groups)
 window.dealFilesTableSort = window.dealFilesTableSort || { by: 'name', order: 'asc' }; // Sort config for Deal Files table
+window.mapTableSort = window.mapTableSort || { by: 'name', order: 'asc' }; // Sort config for map/location table
+window.upcomingDatesSort = window.upcomingDatesSort || { by: 'date', order: 'asc' }; // Sort config for upcoming dates
+window.contactsSort = window.contactsSort || { by: 'name', order: 'asc' }; // Sort config for contacts
 // Land Development Contacts state
 window.landDevelopmentContacts = [];
 window.landDevelopmentContactFilters = { type: '', city: '', state: '', q: '', upcomingOnly: false };
+window.contactsViewMode = window.contactsViewMode || 'list'; // 'list' | 'map'
 let mapInstance = null;
+let contactsMapInstance = null;
 let mapMarkers = []; // Store markers with deal data
 let visibleDealsForMap = []; // Deals currently visible on map
 let allMapMarkers = []; // Store all markers (for city view toggle)
@@ -733,6 +739,10 @@ let isAuthenticated = false;
 let isEditMode = false;
 let currentUser = null;
 let currentEditingDeal = null;
+
+// Presence (who's viewing the Deal Pipeline) – only when authenticated
+let presenceHeartbeatId = null;
+let presencePollId = null;
 
 // Normalize stage name for consistent grouping
 function normalizeStage(stage) {
@@ -1562,6 +1572,20 @@ function applyFilters(deals, excludeStart = true, forOverview = false) {
             }
         }
         
+        // Date added filter (for List and Map views): default 1 year back, or unlimited
+        if (currentFilters.dateAddedRange === '1y') {
+            const createdAt = deal.CreatedAt || deal.createdAt || deal.createdat;
+            if (createdAt) {
+                try {
+                    const added = new Date(createdAt);
+                    const oneYearAgo = new Date(now);
+                    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                    if (!isNaN(added.getTime()) && added < oneYearAgo) return false;
+                } catch (e) { /* include if parse fails */ }
+            }
+            // Deals without CreatedAt: include (don't exclude missing dates)
+        }
+
         // Search filter
         if (currentFilters.search) {
             const searchLower = currentFilters.search.toLowerCase();
@@ -1718,9 +1742,10 @@ function renderDealRow(deal) {
                     '-'
                 }
             </td>
-            ${isAuthenticated && isEditMode ? `<td class="deal-cell actions-cell" data-label="Actions">
-                <button class="deal-edit-btn-small" data-deal-id="${dealId}" onclick="event.stopPropagation(); (function() { const deal = window.allDeals.find(d => d.DealPipelineId === ${dealId}); if (deal) window.openDealEditModal(deal); })();">Edit</button>
-            </td>` : ''}
+            <td class="deal-cell actions-cell" data-label="Actions">
+                <button type="button" class="deal-files-view-btn" data-deal-name="${(dealName || '').replace(/"/g, '&quot;')}" title="Open deal and view/download/upload files" onclick="event.stopPropagation();">View deal & files</button>
+                ${isAuthenticated && isEditMode ? `<button class="deal-edit-btn-small" data-deal-id="${dealId}" onclick="event.stopPropagation(); (function() { const deal = window.allDeals.find(d => d.DealPipelineId === ${dealId}); if (deal) window.openDealEditModal(deal); })();">Edit</button>` : ''}
+            </td>
         </tr>
     `;
 }
@@ -1731,7 +1756,7 @@ function renderStageGroup(stage, deals) {
     const stageClass = stageConfig.class;
     
     const dealsHtml = deals.map(deal => renderDealRow(deal)).join('');
-    const actionsHeader = isAuthenticated && isEditMode ? '<th>Actions</th>' : '';
+    const actionsHeader = '<th>Actions</th>';
     
     // Get current sort for list view
     const listSortConfig = window.listViewSort || { by: 'name', order: 'asc' };
@@ -1962,9 +1987,7 @@ async function renderDealList(deals) {
         });
     }
     
-    if (listViewMode === 'timeline') {
-        renderDealListByTimeline(deals);
-    } else if (listViewMode === 'stage') {
+    if (listViewMode === 'stage') {
         renderDealListByStage(deals);
     } else if (listViewMode === 'product') {
         container.innerHTML = renderByProductType(deals);
@@ -2175,6 +2198,35 @@ function setupDrillDownHandlers() {
         });
     });
     
+    // Upcoming dates table sortable headers
+    document.querySelectorAll('.upcoming-dates-table .sortable-header').forEach(header => {
+        header.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const sortBy = this.dataset.sortBy;
+            const sortOrder = this.dataset.sortOrder;
+            if (sortBy && sortOrder) {
+                window.upcomingDatesSort = { by: sortBy, order: sortOrder };
+                switchView('upcoming-dates', typeof allDeals !== 'undefined' ? allDeals : []);
+            }
+        });
+    });
+
+    // Map/location table sortable headers
+    document.querySelectorAll('.map-location-table .sortable-header').forEach(header => {
+        header.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const sortBy = this.dataset.sortBy;
+            const sortOrder = this.dataset.sortOrder;
+            if (sortBy && sortOrder) {
+                window.mapTableSort = { by: sortBy, order: sortOrder };
+                if (currentView === 'location') {
+                    updateMapTable();
+                    setupDrillDownHandlers();
+                }
+            }
+        });
+    });
+
     // Bank table sortable headers
     document.querySelectorAll('.bank-table .sortable-header').forEach(header => {
         header.addEventListener('click', function(e) {
@@ -2190,6 +2242,16 @@ function setupDrillDownHandlers() {
         });
     });
     
+    // "View deal & files" button clicks
+    document.querySelectorAll('.deal-files-view-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const dealName = (this.dataset.dealName || '').replace(/&quot;/g, '"');
+            const deal = (typeof allDeals !== 'undefined' ? allDeals : []).find(d => (d.Name || d.name) === dealName);
+            if (deal) showDealDetail(deal);
+        });
+    });
+
     // List view table sortable headers
     document.querySelectorAll('.list-view-table .sortable-header').forEach(header => {
         header.addEventListener('click', function(e) {
@@ -2838,7 +2900,18 @@ function asanaMatchQuality(asanaName, dealName) {
 function renderUpcomingDatesView(deals) {
     const filtered = applyFilters(deals, true);
     const summary = calculateSummary(filtered, true);
-    const upcoming = (summary.upcomingDates || []).slice().sort((a, b) => a.date - b.date);
+    const sortConfig = window.upcomingDatesSort || { by: 'date', order: 'asc' };
+    const upcoming = (summary.upcomingDates || []).slice().sort((a, b) => {
+        let cmp = 0;
+        const dA = a.date instanceof Date ? a.date : new Date(a.date);
+        const dB = b.date instanceof Date ? b.date : new Date(b.date);
+        if (sortConfig.by === 'date') cmp = dA - dB;
+        else if (sortConfig.by === 'name') cmp = (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+        else if (sortConfig.by === 'stage') cmp = (a.stage || '').toLowerCase().localeCompare((b.stage || '').toLowerCase());
+        else if (sortConfig.by === 'location') cmp = (a.location || '').toLowerCase().localeCompare((b.location || '').toLowerCase());
+        else if (sortConfig.by === 'dateType') cmp = (a.dateType || '').toLowerCase().localeCompare((b.dateType || '').toLowerCase());
+        return sortConfig.order === 'asc' ? cmp : -cmp;
+    });
     const now = new Date();
     now.setHours(0, 0, 0, 0);
     const rowsHtml = upcoming.map(item => {
@@ -2867,12 +2940,12 @@ function renderUpcomingDatesView(deals) {
                 <table class="deal-list-table upcoming-dates-table">
                     <thead>
                         <tr>
-                            <th>Date Type</th>
-                            <th>Date</th>
+                            <th class="sortable-header ${sortConfig.by === 'dateType' ? 'sorted' : ''}" data-sort-by="dateType" data-sort-order="${sortConfig.by === 'dateType' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Date Type ${sortConfig.by === 'dateType' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th class="sortable-header ${sortConfig.by === 'date' ? 'sorted' : ''}" data-sort-by="date" data-sort-order="${sortConfig.by === 'date' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Date ${sortConfig.by === 'date' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
                             <th>Days from today</th>
-                            <th>Deal</th>
-                            <th>Stage</th>
-                            <th>Location</th>
+                            <th class="sortable-header ${sortConfig.by === 'name' ? 'sorted' : ''}" data-sort-by="name" data-sort-order="${sortConfig.by === 'name' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Deal ${sortConfig.by === 'name' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th class="sortable-header ${sortConfig.by === 'stage' ? 'sorted' : ''}" data-sort-by="stage" data-sort-order="${sortConfig.by === 'stage' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Stage ${sortConfig.by === 'stage' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
+                            <th class="sortable-header ${sortConfig.by === 'location' ? 'sorted' : ''}" data-sort-by="location" data-sort-order="${sortConfig.by === 'location' ? (sortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">Location ${sortConfig.by === 'location' ? (sortConfig.order === 'asc' ? '↑' : '↓') : ''}</th>
                         </tr>
                     </thead>
                     <tbody id="upcoming-dates-tbody">
@@ -3108,11 +3181,17 @@ function renderMapTable(deals) {
         return a.localeCompare(b);
     });
     
-    // Actions header (only show if authenticated and in edit mode)
-    const actionsHeader = (isAuthenticated && isEditMode) ? '<th>Actions</th>' : '';
+    const mapSortConfig = window.mapTableSort || { by: 'name', order: 'asc' };
+    const sortableTh = (col, label) => {
+        const isActive = mapSortConfig.by === col;
+        const order = isActive ? mapSortConfig.order : 'asc';
+        const nextOrder = isActive && order === 'asc' ? 'desc' : 'asc';
+        return `<th class="sortable-header map-table-sort ${isActive ? 'sorted' : ''}" data-sort-by="${col}" data-sort-order="${nextOrder}" style="cursor: pointer;">${label} ${isActive ? (order === 'asc' ? '↑' : '↓') : ''}</th>`;
+    };
     
     return headerHtml + locations.map(location => {
         const locationDeals = grouped[location];
+        const sorted = [...locationDeals].sort((a, b) => sortDeal(a, b, mapSortConfig));
         const totalUnits = locationDeals.reduce((sum, d) => sum + parseInt(d['Unit Count'] || d.unitCount || 0), 0);
         
         return `
@@ -3125,22 +3204,22 @@ function renderMapTable(deals) {
                 </div>
                 <div class="stage-group-content">
                     <div class="stage-group-table-wrapper">
-                        <table class="deal-list-table">
+                        <table class="deal-list-table map-location-table">
                             <thead>
                                 <tr>
-                                    <th>Name</th>
-                                    <th>Stage</th>
-                                    <th>Unit Count</th>
-                                    <th>Start Date</th>
-                                    <th>Bank</th>
-                                    <th>Product Type</th>
-                                    <th>Location</th>
-                                    <th>Notes</th>
-                                    ${actionsHeader}
+                                    ${sortableTh('name', 'Name')}
+                                    ${sortableTh('stage', 'Stage')}
+                                    ${sortableTh('units', 'Unit Count')}
+                                    ${sortableTh('date', 'Start Date')}
+                                    ${sortableTh('bank', 'Bank')}
+                                    ${sortableTh('product', 'Product Type')}
+                                    ${sortableTh('location', 'Location')}
+                                    ${sortableTh('notes', 'Notes')}
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${locationDeals.map(deal => renderDealRow(deal)).join('')}
+                                ${sorted.map(deal => renderDealRow(deal)).join('')}
                             </tbody>
                         </table>
                     </div>
@@ -3671,6 +3750,116 @@ async function initMap(deals) {
     }, 300);
     } finally {
         mapInitInProgress = false;
+    }
+}
+
+// Build address string from contact for geocoding
+function getContactAddress(contact) {
+    const addr = (contact.OfficeAddress || contact.officeAddress || '').trim();
+    const city = (contact.City || contact.city || '').trim();
+    const state = (contact.State || contact.state || '').trim();
+    if (addr && (city || state)) {
+        return [addr, city, state].filter(Boolean).join(', ');
+    }
+    if (addr) return addr;
+    if (city && state) return `${city}, ${state}`;
+    if (city) return city;
+    if (state) return state;
+    return '';
+}
+
+let contactsMapInitInProgress = false;
+
+async function initContactsMap(contacts) {
+    if (contactsMapInitInProgress) return;
+    contactsMapInitInProgress = true;
+    try {
+        if (contactsMapInstance) {
+            contactsMapInstance.remove();
+            contactsMapInstance = null;
+        }
+        const mapDiv = document.getElementById('contacts-map');
+        if (!mapDiv) { contactsMapInitInProgress = false; return; }
+
+        const DEFAULT_CENTER = [39.5, -98.5];
+        const DEFAULT_ZOOM = 4;
+        const US_BOUNDS = L.latLngBounds([[24, -125], [49, -66]]);
+
+        contactsMapInstance = L.map('contacts-map', {
+            center: DEFAULT_CENTER,
+            zoom: DEFAULT_ZOOM,
+            maxBounds: US_BOUNDS,
+            maxBoundsViscosity: 1.0
+        });
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(contactsMapInstance);
+
+        const list = Array.isArray(contacts) ? contacts : [];
+        const withAddress = list.filter(c => getContactAddress(c));
+        const seen = {};
+        const uniqueByLocation = [];
+        withAddress.forEach(c => {
+            const addr = getContactAddress(c);
+            if (!addr || seen[addr]) return;
+            seen[addr] = true;
+            uniqueByLocation.push(c);
+        });
+
+        const markers = [];
+        for (const c of uniqueByLocation) {
+            const addr = getContactAddress(c);
+            const coords = await geocodeLocation(addr);
+            if (!coords) continue;
+            const name = (c.Name || c.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const type = (c.Type || c.type || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const city = (c.City || c.city || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const state = (c.State || c.state || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const locStr = [city, state].filter(Boolean).join(', ');
+            const officeAddr = (c.OfficeAddress || c.officeAddress || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const id = getLandDevContactId(c);
+            const popupHtml = `
+                <div style="min-width: 160px;">
+                    <strong>${name}</strong><br/>
+                    ${type ? type + '<br/>' : ''}${locStr ? locStr + '<br/>' : ''}${officeAddr ? officeAddr + '<br/>' : ''}
+                    <button type="button" class="map-popup-btn contacts-map-edit-btn" data-contact-id="${id}">Edit</button>
+                </div>`;
+            const marker = L.marker(coords).addTo(contactsMapInstance);
+            marker.bindPopup(popupHtml);
+            marker._contact = c;
+            markers.push(marker);
+        }
+
+        if (markers.length > 0) {
+            const group = new L.featureGroup(markers);
+            contactsMapInstance.fitBounds(group.getBounds().pad(0.1));
+        } else if (list.length > 0) {
+            const panel = mapDiv.closest('.contacts-map-panel');
+            if (panel) {
+                panel.querySelectorAll('.contacts-map-empty-msg').forEach(el => el.remove());
+                const emptyEl = document.createElement('div');
+                emptyEl.className = 'contacts-map-empty-msg';
+                emptyEl.textContent = 'No contacts with address data to display. Add City/State or Office Address to contacts.';
+                emptyEl.setAttribute('aria-live', 'polite');
+                panel.appendChild(emptyEl);
+            }
+        }
+
+        if (contactsMapInstance.getContainer()) {
+            contactsMapInstance.getContainer().addEventListener('click', function(e) {
+                const target = e.target;
+                if (!target || !target.classList.contains('contacts-map-edit-btn')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const id = parseInt(target.dataset.contactId, 10);
+                const c = (window.landDevelopmentContacts || []).find(x => getLandDevContactId(x) === id);
+                if (c) showContactModal(c);
+                if (contactsMapInstance) contactsMapInstance.closePopup();
+            });
+        }
+    } finally {
+        contactsMapInitInProgress = false;
     }
 }
 
@@ -4283,7 +4472,7 @@ async function renderByBank(deals) {
                                     <th class="sortable-header ${bankSortConfig.by === 'notes' ? 'sorted' : ''}" data-sort-by="notes" data-sort-order="${bankSortConfig.by === 'notes' ? (bankSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                         Notes ${bankSortConfig.by === 'notes' ? (bankSortConfig.order === 'asc' ? '↑' : '↓') : ''}
                                     </th>
-                                    ${isAuthenticated && isEditMode ? '<th>Actions</th>' : ''}
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -4325,11 +4514,10 @@ async function renderByBank(deals) {
                                                     '-'
                                                 }
                                             </td>
-                                            ${isAuthenticated && isEditMode ? `
-                                                <td class="deal-cell" data-label="Actions">
-                                                    <button class="deal-edit-btn-small" onclick="window.openDealEditModal(window.allDeals.find(d => (d.Name || d.name) === '${(deal.Name || deal.name || '').replace(/'/g, "\\'")}'))">Edit</button>
-                                                </td>
-                                            ` : ''}
+                                            <td class="deal-cell actions-cell" data-label="Actions">
+                                                <button type="button" class="deal-files-view-btn" data-deal-name="${((deal.Name || deal.name) || '').replace(/"/g, '&quot;')}" title="Open deal and view/download/upload files" onclick="event.stopPropagation();">View deal & files</button>
+                                                ${isAuthenticated && isEditMode ? `<button class="deal-edit-btn-small" onclick="event.stopPropagation(); window.openDealEditModal(window.allDeals.find(d => (d.Name || d.name) === '${(deal.Name || deal.name || '').replace(/'/g, "\\'")}'))">Edit</button>` : ''}
+                                            </td>
                                         </tr>
                                     `;
                                 }).join('')}
@@ -4422,15 +4610,16 @@ function renderByProductType(deals) {
                                     <th class="sortable-header ${productTypeSort.by === 'notes' ? 'sorted' : ''}" data-sort-by="notes" data-sort-order="${productTypeSort.by === 'notes' ? (productTypeSort.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                         Notes ${productTypeSort.by === 'notes' ? (productTypeSort.order === 'asc' ? '↑' : '↓') : ''}
                                     </th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${typeDeals.map(deal => {
-                                    // Create a version without Product Type column for this view
+                                    const dealName = deal.Name || deal.name || 'Unnamed Deal';
                                     const stage = normalizeStage(deal.Stage || deal.stage);
                                     const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
                                     return `
-                                        <tr class="deal-row">
+                                        <tr class="deal-row" data-deal-name="${dealName}">
                                             <td class="deal-name" data-label="Name">
                                                 ${deal.commentsCount ? `<span class="comments-count">${deal.commentsCount}</span>` : ''}
                                                 ${deal.Name || deal.name || 'Unnamed Deal'}
@@ -4463,6 +4652,10 @@ function renderByProductType(deals) {
                                                     '-'
                                                 }
                                             </td>
+                                            <td class="deal-cell actions-cell" data-label="Actions">
+                                                <button type="button" class="deal-files-view-btn" data-deal-name="${(dealName || '').replace(/"/g, '&quot;')}" title="Open deal and view/download/upload files" onclick="event.stopPropagation();">View deal & files</button>
+                                                ${isAuthenticated && isEditMode ? `<button class="deal-edit-btn-small" data-deal-id="${deal.DealPipelineId || ''}" onclick="event.stopPropagation(); (function() { const d = window.allDeals.find(x => (x.Name || x.name) === '${(dealName || '').replace(/'/g, "\\'")}'); if (d) window.openDealEditModal(d); })();">Edit</button>` : ''}
+                                            </td>
                                         </tr>
                                     `;
                                 }).join('')}
@@ -4476,7 +4669,7 @@ function renderByProductType(deals) {
     `;
 }
 
-// Render Deal Files view – list of deals with link to view files (opens deal popup)
+// Render Deal Files view – list of deals with link to view files (opens deal popup) [kept for reference, merged into List]
 function renderDealFilesView(deals) {
     const filtered = applyFilters(deals, true); // Exclude START
     const sortConfig = window.dealFilesTableSort || { by: 'name', order: 'asc' };
@@ -4504,7 +4697,7 @@ function renderDealFilesView(deals) {
         ${renderActiveFilters()}
         <div class="deal-files-view">
             <h2 class="deal-files-title">Deal Files</h2>
-            <p class="deal-files-desc">Click "View deal & files" to open a deal and see its attached files. Everyone can view and download; only admins can upload, rename, or delete.</p>
+            <p class="deal-files-desc">Click "View deal & files" to open a deal and see its attached files. Everyone can view and download; only admins can upload, rename, or delete. To show a deal on the map: enter Latitude and Longitude in the deal form, or upload a .kmz file in the Land section.</p>
             <div class="deal-files-table-wrapper">
                 <table class="deal-list-table deal-files-table">
                     <thead>
@@ -4585,6 +4778,25 @@ function isContactFollowUpUpcoming(c, withinDays = 14) {
 function renderContactsView(contacts) {
     const f = window.landDevelopmentContactFilters || {};
     const types = ['Land Owner', 'Developer', 'Broker'];
+    const sortConfig = window.contactsSort || { by: 'name', order: 'asc' };
+    const isMapMode = window.contactsViewMode === 'map';
+    const sorted = [...(contacts || [])].sort((a, b) => {
+        let cmp = 0;
+        if (sortConfig.by === 'name') cmp = (a.Name || '').toLowerCase().localeCompare((b.Name || '').toLowerCase());
+        else if (sortConfig.by === 'type') cmp = (a.Type || '').toLowerCase().localeCompare((b.Type || '').toLowerCase());
+        else if (sortConfig.by === 'city') cmp = (a.City || '').toLowerCase().localeCompare((b.City || '').toLowerCase());
+        else if (sortConfig.by === 'state') cmp = (a.State || '').toLowerCase().localeCompare((b.State || '').toLowerCase());
+        else if (sortConfig.by === 'date') {
+            const dA = a.DateOfContact ? new Date(a.DateOfContact).getTime() : 0;
+            const dB = b.DateOfContact ? new Date(b.DateOfContact).getTime() : 0;
+            cmp = dA - dB;
+        } else if (sortConfig.by === 'followup') {
+            const nextA = a.NextFollowUpDate ? new Date(a.NextFollowUpDate).getTime() : (a.DateOfContact && a.FollowUpTimeframeDays ? new Date(a.DateOfContact).getTime() + a.FollowUpTimeframeDays * 86400000 : 0);
+            const nextB = b.NextFollowUpDate ? new Date(b.NextFollowUpDate).getTime() : (b.DateOfContact && b.FollowUpTimeframeDays ? new Date(b.DateOfContact).getTime() + b.FollowUpTimeframeDays * 86400000 : 0);
+            cmp = nextA - nextB;
+        }
+        return sortConfig.order === 'asc' ? cmp : -cmp;
+    });
     const upcoming = (contacts || []).filter(c => c.UpcomingFollowUp === true || isContactFollowUpUpcoming(c));
     return `
         <div class="contacts-view">
@@ -4609,7 +4821,23 @@ function renderContactsView(contacts) {
             </div>
             ` : ''}
             <div class="contacts-toolbar">
+                <div class="contacts-view-toggle" role="group" aria-label="List or map view">
+                    <button type="button" class="contacts-toggle-btn ${!isMapMode ? 'active' : ''}" data-mode="list">List</button>
+                    <button type="button" class="contacts-toggle-btn ${isMapMode ? 'active' : ''}" data-mode="map">Map</button>
+                </div>
                 <div class="contacts-filters">
+                    <select id="contacts-sort-by" class="contacts-filter-select" aria-label="Sort contacts by">
+                        <option value="name" ${sortConfig.by === 'name' ? 'selected' : ''}>Sort: Name</option>
+                        <option value="type" ${sortConfig.by === 'type' ? 'selected' : ''}>Sort: Type</option>
+                        <option value="city" ${sortConfig.by === 'city' ? 'selected' : ''}>Sort: City</option>
+                        <option value="state" ${sortConfig.by === 'state' ? 'selected' : ''}>Sort: State</option>
+                        <option value="date" ${sortConfig.by === 'date' ? 'selected' : ''}>Sort: Contact Date</option>
+                        <option value="followup" ${sortConfig.by === 'followup' ? 'selected' : ''}>Sort: Follow-up Date</option>
+                    </select>
+                    <select id="contacts-sort-order" class="contacts-filter-select" aria-label="Sort order" style="width: 6em;">
+                        <option value="asc" ${sortConfig.order === 'asc' ? 'selected' : ''}>A→Z</option>
+                        <option value="desc" ${sortConfig.order === 'desc' ? 'selected' : ''}>Z→A</option>
+                    </select>
                     <select id="contacts-filter-type" class="contacts-filter-select" aria-label="Filter by type">
                         <option value="">All types</option>
                         ${types.map(t => `<option value="${t.replace(/"/g, '&quot;')}" ${f.type === t ? 'selected' : ''}>${t}</option>`).join('')}
@@ -4621,8 +4849,10 @@ function renderContactsView(contacts) {
                 </div>
                 <button type="button" class="contacts-add-btn" id="contacts-add-btn">Add contact</button>
             </div>
+            <div class="contacts-panels">
+                <div class="contacts-list-panel ${isMapMode ? 'hidden' : ''}" id="contacts-list-panel">
             <div class="contacts-list" id="contacts-list">
-                ${!(contacts && contacts.length) ? '<p class="contacts-empty">No contacts yet. Add a contact or adjust filters.</p>' : contacts.map(c => {
+                ${!(sorted && sorted.length) ? '<p class="contacts-empty">No contacts yet. Add a contact or adjust filters.</p>' : sorted.map(c => {
                     const name = (c.Name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     const type = (c.Type || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     const city = (c.City || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -4650,6 +4880,11 @@ function renderContactsView(contacts) {
                 </div>`;
                 }).join('')}
             </div>
+                </div>
+                <div class="contacts-map-panel ${!isMapMode ? 'hidden' : ''}" id="contacts-map-panel">
+                    <div id="contacts-map" class="contacts-map-canvas" aria-label="Contacts map"></div>
+                </div>
+            </div>
         </div>
     `;
 }
@@ -4673,12 +4908,42 @@ function setupContactsViewHandlers(container) {
         };
         switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
     };
+    const applySortAndRefresh = () => {
+        const sortBy = (container.querySelector('#contacts-sort-by') || {}).value || 'name';
+        const sortOrder = (container.querySelector('#contacts-sort-order') || {}).value || 'asc';
+        window.contactsSort = { by: sortBy, order: sortOrder };
+        switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
+    };
+    container.querySelector('#contacts-sort-by')?.addEventListener('change', applySortAndRefresh);
+    container.querySelector('#contacts-sort-order')?.addEventListener('change', applySortAndRefresh);
     container.querySelector('#contacts-filter-type')?.addEventListener('change', applyFiltersAndRefresh);
     container.querySelector('#contacts-filter-city')?.addEventListener('input', debounce(applyFiltersAndRefresh, 400));
     container.querySelector('#contacts-filter-state')?.addEventListener('input', debounce(applyFiltersAndRefresh, 400));
     container.querySelector('#contacts-filter-q')?.addEventListener('input', debounce(applyFiltersAndRefresh, 400));
     container.querySelector('#contacts-filter-upcoming')?.addEventListener('change', applyFiltersAndRefresh);
     container.querySelector('#contacts-add-btn')?.addEventListener('click', () => showContactModal(null));
+
+    container.querySelectorAll('.contacts-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const mode = this.dataset.mode;
+            if (!mode || mode === window.contactsViewMode) return;
+            window.contactsViewMode = mode;
+            const listPanel = container.querySelector('#contacts-list-panel');
+            const mapPanel = container.querySelector('#contacts-map-panel');
+            container.querySelectorAll('.contacts-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+            if (mode === 'map') {
+                if (listPanel) listPanel.classList.add('hidden');
+                if (mapPanel) mapPanel.classList.remove('hidden');
+                setTimeout(async () => {
+                    await initContactsMap(window.landDevelopmentContacts || []);
+                    if (contactsMapInstance) contactsMapInstance.invalidateSize();
+                }, 100);
+            } else {
+                if (listPanel) listPanel.classList.remove('hidden');
+                if (mapPanel) mapPanel.classList.add('hidden');
+            }
+        });
+    });
     container.querySelectorAll('.contacts-view-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const id = parseInt(this.dataset.contactId, 10);
@@ -4775,7 +5040,9 @@ function showContactModal(contact) {
         </div>
     `;
     document.body.appendChild(modal);
-    const close = () => { modal.remove(); };
+    const escHandler = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', escHandler);
+    let close = () => { document.removeEventListener('keydown', escHandler); modal.remove(); };
 
     const reminderSelectInput = modal.querySelector('#contact-reminder-select-input');
     const reminderEmailInput = modal.querySelector('#contact-field-reminder-email');
@@ -4824,7 +5091,7 @@ function showContactModal(contact) {
         let closeDropdown = (e) => { if (!wrapper.contains(e.target)) dropdown.style.display = 'none'; };
         document.addEventListener('click', closeDropdown);
         const origClose = close;
-        close = () => { document.removeEventListener('click', closeDropdown); origClose(); };
+        close = function () { document.removeEventListener('click', closeDropdown); origClose(); };
         optionsContainer.addEventListener('click', (e) => {
             const option = e.target.closest('.searchable-select-option');
             if (!option || option.classList.contains('no-results')) return;
@@ -4904,9 +5171,6 @@ function showContactModal(contact) {
         } catch (err) {
             alert(err.message || 'Save failed.');
         }
-    });
-    document.addEventListener('keydown', function escapeContactModal(e) {
-        if (e.key === 'Escape') { close(); document.removeEventListener('keydown', escapeContactModal); }
     });
 }
 
@@ -5342,6 +5606,10 @@ function updateFiltersUI() {
                 `<option value="${product}" ${currentFilters.product === product ? 'selected' : ''}>${product}</option>`
             ).join('');
     }
+
+    // Update date-added filter
+    const dateAddedFilter = document.getElementById('date-added-filter');
+    if (dateAddedFilter) dateAddedFilter.value = currentFilters.dateAddedRange || '1y';
     
     // hideStart filter removed - START deals are automatically excluded
 }
@@ -5370,6 +5638,7 @@ function getActiveFilters() {
     if (currentFilters.state) active.push({ label: 'State', value: currentFilters.state });
     if (currentFilters.year) active.push({ label: 'Year', value: currentFilters.year });
     if (currentFilters.search) active.push({ label: 'Search', value: currentFilters.search });
+    if (currentFilters.dateAddedRange === '1y') active.push({ label: 'Date Added', value: 'Last 1 year' });
     return active;
 }
 
@@ -5405,7 +5674,8 @@ function clearFilters() {
         search: '', // Clear search
         year: '', // Clear year filter
         timelineStartDate: null,
-        timelineEndDate: null
+        timelineEndDate: null,
+        dateAddedRange: '1y'
     };
     // Clear search input
     const searchInput = document.getElementById('search-filter');
@@ -6218,11 +6488,13 @@ function showDealDetail(deal) {
                 <div class="deal-detail-section deal-detail-files-section" id="deal-detail-files-section" data-deal-pipeline-id="${deal.DealPipelineId || deal._original?.DealPipelineId || ''}">
                     <h3>Files</h3>
                     <p class="deal-detail-files-desc">${typeof isAuthenticated !== 'undefined' && isAuthenticated ? 'View, download, upload, rename, or delete files. Organize by section (Land, Design and Permits, etc.).' : 'View and download files. Only admins can upload, rename, or delete.'}</p>
+                    <p class="deal-detail-files-map-tip">To have this deal show on the map: either <strong>manually enter Latitude and Longitude</strong> in the deal form (Edit or Core Data Management), or <strong>upload a .kmz file</strong> in the Land section below—coordinates will be extracted and placed on the map.</p>
                     <div class="deal-detail-files-message" id="deal-detail-files-message" role="status" aria-live="polite"></div>
                     <input type="file" id="deal-detail-file-version-input" accept="*" style="display: none;" />
                     <div class="deal-detail-files-subsections" id="deal-detail-files-subsections">
                         <div class="deal-detail-files-subsection" data-section="Land">
                             <h4 class="deal-detail-files-subsection-title">Land</h4>
+                            <p class="deal-detail-files-subsection-hint">Upload .kmz or .kml files here to extract coordinates for the map.</p>
                             <div class="deal-detail-files-upload" id="deal-detail-files-upload-wrap" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
                                 <input type="file" class="deal-detail-file-input" data-section="Land" multiple />
                                 <button type="button" class="deal-detail-upload-btn" data-section="Land">Upload</button>
@@ -6547,6 +6819,8 @@ function showDealDetail(deal) {
                         return { key: k, versions: (byName[k] || []).slice().sort(function (x, y) { return new Date(y.CreatedAt || 0) - new Date(x.CreatedAt || 0); }) };
                     });
                 }
+                var projectName = (deal.ProjectName || deal.Name || deal.name || '').trim().replace(/"/g, '&quot;');
+                var downloadFileNamePrefix = projectName ? projectName + ' - ' : '';
                 var html = '';
                 docGroups.forEach(function (group) {
                     var versions = group.versions;
@@ -6562,6 +6836,7 @@ function showDealDetail(deal) {
                         : '';
                     var fileName = (latest.FileName || 'File').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     var fileNameAttr = (latest.FileName || '').replace(/"/g, '&quot;');
+                    var downloadFileNameAttr = downloadFileNamePrefix + fileNameAttr;
                     var versionLabel = versionCount > 1 ? ' <span class="deal-detail-file-version-badge">Version ' + versionCount + ' (current)</span>' : '';
                     var uploadNewVersionBtn = canEdit
                         ? ' <button type="button" class="deal-detail-file-upload-version-btn" data-parent-id="' + latest.DealPipelineAttachmentId + '" title="Upload new version">Upload new version</button>'
@@ -6570,18 +6845,19 @@ function showDealDetail(deal) {
                     var viewBtnLatest = viewableLatest
                         ? '<button type="button" class="deal-detail-file-view-btn" data-attachment-id="' + latest.DealPipelineAttachmentId + '" data-file-name="' + fileNameAttr + '" title="View in browser">View</button>'
                         : '';
-                    html += '<div class="deal-detail-file-doc" data-parent-id="' + latest.DealPipelineAttachmentId + '"><div class="deal-detail-file-item" data-attachment-id="' + latest.DealPipelineAttachmentId + '"><span class="deal-detail-file-name" title="' + fileNameAttr + '">' + fileName + '</span>' + versionLabel + '<span class="deal-detail-file-meta">' + sizeKb + ' KB · ' + dateStr + '</span><div class="deal-detail-file-actions">' + renameBtn + viewBtnLatest + '<button type="button" class="deal-detail-file-download-btn" data-attachment-id="' + latest.DealPipelineAttachmentId + '" data-file-name="' + fileNameAttr + '" title="Download">Download</button>' + deleteBtn + uploadNewVersionBtn + '</div></div>';
+                    html += '<div class="deal-detail-file-doc" data-parent-id="' + latest.DealPipelineAttachmentId + '"><div class="deal-detail-file-item" data-attachment-id="' + latest.DealPipelineAttachmentId + '"><span class="deal-detail-file-name" title="' + fileNameAttr + '">' + fileName + '</span>' + versionLabel + '<span class="deal-detail-file-meta">' + sizeKb + ' KB · ' + dateStr + '</span><div class="deal-detail-file-actions">' + renameBtn + viewBtnLatest + '<button type="button" class="deal-detail-file-download-btn" data-attachment-id="' + latest.DealPipelineAttachmentId + '" data-file-name="' + downloadFileNameAttr + '" title="Download">Download</button>' + deleteBtn + uploadNewVersionBtn + '</div></div>';
                     if (versions.length > 1) {
                         html += '<div class="deal-detail-file-version-history">';
                         versions.slice(1).forEach(function (a, i) {
                             var vNum = versions.length - i;
                             var vDate = a.CreatedAt ? formatDate(a.CreatedAt) : '—';
                             var vName = (a.FileName || '').replace(/"/g, '&quot;');
+                            var vDownloadName = downloadFileNamePrefix + vName;
                             var viewableVer = isViewableFile(a.FileName, a.ContentType);
                             var viewBtnVer = viewableVer
                                 ? '<button type="button" class="deal-detail-file-view-btn" data-attachment-id="' + a.DealPipelineAttachmentId + '" data-file-name="' + vName + '" title="View in browser">View</button>'
                                 : '';
-                            html += '<div class="deal-detail-file-version-row"><span class="deal-detail-file-version-label">Version ' + vNum + '</span><span class="deal-detail-file-meta">' + vDate + '</span>' + viewBtnVer + '<button type="button" class="deal-detail-file-download-btn" data-attachment-id="' + a.DealPipelineAttachmentId + '" data-file-name="' + vName + '" title="Download">Download</button></div>';
+                            html += '<div class="deal-detail-file-version-row"><span class="deal-detail-file-version-label">Version ' + vNum + '</span><span class="deal-detail-file-meta">' + vDate + '</span>' + viewBtnVer + '<button type="button" class="deal-detail-file-download-btn" data-attachment-id="' + a.DealPipelineAttachmentId + '" data-file-name="' + vDownloadName + '" title="Download">Download</button></div>';
                         });
                         html += '</div>';
                     }
@@ -6785,6 +7061,10 @@ async function switchView(view, deals) {
     }
     
     currentView = view;
+    if (view !== 'contacts' && contactsMapInstance) {
+        contactsMapInstance.remove();
+        contactsMapInstance = null;
+    }
     const container = document.getElementById('deal-list-container');
     const filterControls = document.getElementById('filter-controls');
     const sortControls = document.getElementById('sort-controls');
@@ -6810,7 +7090,7 @@ async function switchView(view, deals) {
     });
     
     // Show/hide filter and sort controls (contacts has its own inline filters)
-    if (view === 'list' || view === 'location' || view === 'files' || view === 'upcoming-dates') {
+    if (view === 'list' || view === 'location' || view === 'upcoming-dates') {
         if (filterControls) filterControls.style.display = 'flex';
         if (sortControls) sortControls.style.display = 'flex';
         // Update filter UI when showing controls
@@ -6854,29 +7134,6 @@ async function switchView(view, deals) {
             container.innerHTML = renderUpcomingDatesView(deals);
             setupDrillDownHandlers();
             break;
-        case 'files':
-            container.innerHTML = renderDealFilesView(deals);
-            setupDrillDownHandlers();
-            // Bind "View deal & files" buttons to open deal popup
-            document.querySelectorAll('.deal-files-view-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
-                    const dealName = this.dataset.dealName;
-                    const deal = (typeof allDeals !== 'undefined' ? allDeals : deals).find(d => (d.Name || d.name) === dealName);
-                    if (deal) showDealDetail(deal);
-                });
-            });
-            // Bind sortable column headers in Deal Files table
-            document.querySelectorAll('.deal-files-table .sortable-header').forEach(header => {
-                header.addEventListener('click', function() {
-                    const sortBy = this.getAttribute('data-sort-by');
-                    const sortOrder = this.getAttribute('data-sort-order');
-                    if (sortBy && sortOrder) {
-                        window.dealFilesTableSort = { by: sortBy, order: sortOrder };
-                        switchView('files', typeof allDeals !== 'undefined' ? allDeals : deals);
-                    }
-                });
-            });
-            break;
         case 'contacts':
             container.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Loading contacts…</div>';
             (async () => {
@@ -6893,6 +7150,12 @@ async function switchView(view, deals) {
                     window.landDevelopmentContacts = list;
                     container.innerHTML = renderContactsView(list);
                     setupContactsViewHandlers(container);
+                    if (window.contactsViewMode === 'map') {
+                        setTimeout(async () => {
+                            await initContactsMap(list);
+                            if (contactsMapInstance) contactsMapInstance.invalidateSize();
+                        }, 150);
+                    }
                 } catch (e) {
                     container.innerHTML = `<div class="contacts-view"><p class="contacts-error">Could not load contacts: ${(e.message || e).toString()}. Check that the Land Development Contacts API is available.</p></div>`;
                 }
@@ -7769,6 +8032,9 @@ async function init() {
                     } else if (e.target.id === 'product-filter') {
                         currentFilters.product = e.target.value;
                         switchView(currentView, allDeals);
+                    } else if (e.target.id === 'date-added-filter') {
+                        currentFilters.dateAddedRange = e.target.value;
+                        switchView(currentView, allDeals);
                     }
                 });
             }
@@ -7927,8 +8193,8 @@ function initAuthUI() {
     const addDealPipelineBtn = document.getElementById('add-deal-pipeline-btn');
     if (addDealPipelineBtn) {
         addDealPipelineBtn.addEventListener('click', () => {
-            // Add a new empty row to the table for creating a new deal
-            addNewDealRow();
+            // Open the user-friendly edit modal for creating a new deal (not the inline table row)
+            openDealEditModal({});
         });
     }
     
@@ -7979,12 +8245,99 @@ function initAuthUI() {
     });
 }
 
+/** Update the "others viewing" pill. Only when authenticated. */
+function updateOtherAdminsViewingUI(users) {
+    const el = document.getElementById('other-admins-viewing');
+    if (!el) return;
+    const me = currentUser;
+    const meId = me && (me.userId ?? me.id ?? me.UserId);
+    const meEmail = me && (me.email || '').toString().toLowerCase().trim();
+    const others = (users || []).filter(function (u) {
+        const uid = u.userId ?? u.id ?? u.user_id;
+        const email = (u.email || '').toString().toLowerCase().trim();
+        if (meId != null && uid != null && String(meId) === String(uid)) return false;
+        if (meEmail && email && meEmail === email) return false;
+        return true;
+    });
+    const names = others.map(function (u) { return u.userName || u.username || u.email || u.name || 'User'; }).filter(Boolean);
+    if (names.length === 0) {
+        el.textContent = 'Only you viewing';
+        el.classList.remove('other-admins-has-others');
+        el.title = "You're the only one currently viewing this dashboard";
+    } else {
+        el.textContent = 'Also viewing: ' + names.join(', ');
+        el.classList.add('other-admins-has-others');
+        el.title = 'Currently viewing: ' + names.join(', ');
+    }
+}
+
+/** Fetch presence from backend and update the pill. */
+async function fetchAndUpdatePresence() {
+    if (!isAuthenticated || !currentUser) return;
+    const base = (typeof API !== 'undefined' && API.getApiBaseUrl) ? API.getApiBaseUrl() : (window.API_BASE_URL || 'https://stoagroupdb-ddre.onrender.com');
+    const token = (typeof API !== 'undefined' && API.getAuthToken) ? API.getAuthToken() : (typeof localStorage !== 'undefined' && localStorage.getItem('authToken'));
+    try {
+        const res = await fetch(base + '/api/pipeline/presence', {
+            method: 'GET',
+            headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+        });
+        if (!res.ok) {
+            updateOtherAdminsViewingUI([]);
+            return;
+        }
+        const data = await res.json();
+        const users = (data && data.data && data.data.users) ? data.data.users : (Array.isArray(data.data) ? data.data : []);
+        updateOtherAdminsViewingUI(users);
+    } catch (_) {
+        updateOtherAdminsViewingUI([]);
+    }
+}
+
+/** Report presence heartbeat to backend. */
+function reportPresenceHeartbeat() {
+    if (!isAuthenticated || !currentUser) return;
+    const base = (typeof API !== 'undefined' && API.getApiBaseUrl) ? API.getApiBaseUrl() : (window.API_BASE_URL || 'https://stoagroupdb-ddre.onrender.com');
+    const token = (typeof API !== 'undefined' && API.getAuthToken) ? API.getAuthToken() : (typeof localStorage !== 'undefined' && localStorage.getItem('authToken'));
+    const payload = {
+        userId: currentUser.userId ?? currentUser.id ?? currentUser.UserId,
+        userName: currentUser.username ?? currentUser.userName ?? currentUser.name ?? currentUser.fullName,
+        email: currentUser.email,
+        timestamp: new Date().toISOString()
+    };
+    fetch(base + '/api/pipeline/presence', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+        body: JSON.stringify(payload)
+    }).catch(function () {});
+}
+
+function startPresence() {
+    if (!isAuthenticated || !currentUser) return;
+    stopPresence();
+    reportPresenceHeartbeat();
+    fetchAndUpdatePresence();
+    presenceHeartbeatId = setInterval(reportPresenceHeartbeat, 45000);
+    presencePollId = setInterval(fetchAndUpdatePresence, 30000);
+}
+
+function stopPresence() {
+    if (presenceHeartbeatId) {
+        clearInterval(presenceHeartbeatId);
+        presenceHeartbeatId = null;
+    }
+    if (presencePollId) {
+        clearInterval(presencePollId);
+        presencePollId = null;
+    }
+}
+
 function updateAuthUI() {
     const adminBadge = document.getElementById('admin-badge');
     const authActions = document.getElementById('auth-actions');
     const loginBtn = document.getElementById('login-btn');
     const dealPipelineBtn = document.getElementById('deal-pipeline-btn');
     const editModeBtn = document.getElementById('edit-mode-btn');
+    const otherAdminsEl = document.getElementById('other-admins-viewing');
     
     if (isAuthenticated) {
         // Admin: show "ADMIN logged in" and Deal Pipeline / Edit Mode (auth synced with Domo – no logout button)
@@ -7993,11 +8346,18 @@ function updateAuthUI() {
         if (loginBtn) loginBtn.style.display = 'none';
         if (dealPipelineBtn) dealPipelineBtn.style.display = 'inline-block';
         if (editModeBtn) editModeBtn.style.display = 'inline-block';
+        if (otherAdminsEl) {
+            otherAdminsEl.style.display = 'inline-flex';
+            updateOtherAdminsViewingUI([]);
+            startPresence();
+        }
     } else {
         // Not authenticated: hide admin badge and Deal Pipeline / Edit Mode
         if (adminBadge) adminBadge.style.display = 'none';
         if (dealPipelineBtn) dealPipelineBtn.style.display = 'none';
         if (editModeBtn) editModeBtn.style.display = 'none';
+        if (otherAdminsEl) otherAdminsEl.style.display = 'none';
+        stopPresence();
         isEditMode = false;
         updateEditModeUI();
         document.body.classList.remove('deal-pipeline-open');
@@ -8124,11 +8484,10 @@ window.openDealEditModal = async function(deal) {
         deleteBtn.style.display = deal.DealPipelineId ? 'inline-block' : 'none';
     }
     
-    // Load Pre-Con Managers for dropdown (using direct API call since api-client doesn't have this function)
+    // Load Pre-Con Managers for dropdown
     let preConManagers = [];
     try {
-        const response = await fetch(`${window.API_BASE_URL || 'https://stoagroupdb-ddre.onrender.com'}/api/core/precon-managers`);
-        const managersResponse = await response.json();
+        const managersResponse = await API.getAllPreConManagers();
         if (managersResponse.success) {
             preConManagers = managersResponse.data || [];
         }
@@ -8165,6 +8524,10 @@ window.openDealEditModal = async function(deal) {
     document.getElementById('edit-city').value = original.City || '';
     document.getElementById('edit-state').value = original.State || '';
     document.getElementById('edit-region').value = original.Region || '';
+    const editLat = document.getElementById('edit-latitude');
+    const editLng = document.getElementById('edit-longitude');
+    if (editLat) editLat.value = original.Latitude != null ? String(original.Latitude) : (deal.Latitude != null ? String(deal.Latitude) : '');
+    if (editLng) editLng.value = original.Longitude != null ? String(original.Longitude) : (deal.Longitude != null ? String(deal.Longitude) : '');
     document.getElementById('edit-units').value = deal['Unit Count'] || original.Units || '';
     document.getElementById('edit-unit-count').value = original.UnitCount || deal['Unit Count'] || '';
     document.getElementById('edit-product-type').value = deal['Product Type'] || original.ProductType || '';
@@ -8345,6 +8708,8 @@ async function handleDealSave(e) {
         City: form['edit-city'].value.trim() || null,
         State: form['edit-state'].value.trim().toUpperCase() || null,
         Region: form['edit-region'].value.trim() || null,
+        Latitude: form['edit-latitude'] && form['edit-latitude'].value ? parseFloat(form['edit-latitude'].value) : null,
+        Longitude: form['edit-longitude'] && form['edit-longitude'].value ? parseFloat(form['edit-longitude'].value) : null,
         Units: form['edit-units'].value ? parseInt(form['edit-units'].value) : null,
         UnitCount: form['edit-unit-count'].value ? parseInt(form['edit-unit-count'].value) : null,
         ProductType: form['edit-product-type'].value || null,
@@ -8605,11 +8970,10 @@ async function renderDealPipelineTable() {
             console.warn('Failed to load loans/banks for bank name calculation:', error);
         }
         
-        // Get Pre-Con Managers for dropdown (using direct API call since api-client doesn't have this function)
+        // Get Pre-Con Managers for dropdown
         let preConManagers = [];
         try {
-            const response = await fetch(`${window.API_BASE_URL || 'https://stoagroupdb-ddre.onrender.com'}/api/core/precon-managers`);
-            const managersResponse = await response.json();
+            const managersResponse = await API.getAllPreConManagers();
             if (managersResponse.success) {
                 preConManagers = managersResponse.data || [];
             }

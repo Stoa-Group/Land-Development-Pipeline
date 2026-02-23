@@ -82,6 +82,7 @@
   API.setApiBaseUrl = setApiBaseUrl;
   API.getApiBaseUrl = getApiBaseUrl;
   API.setAuthToken = setAuthToken;
+  API.isDomoEnvironment = isDomoEnvironment;
   API.getAuthToken = getAuthToken;
   API.clearAuthToken = clearAuthToken;
 
@@ -125,6 +126,236 @@
     throw error;
   }
 }
+
+// ============================================================
+// DUAL-SOURCE READS: Domo datasets (in Domo) | API (outside Domo)
+// When loaded in Domo: pull from Domo datasets for fast load.
+// When loaded outside Domo: pull from backend API.
+// Both paths return identical data shape; writes always use API.
+// ============================================================
+
+  /**
+   * Normalize payload to match API response shape exactly.
+   * - State, HQState: full names → 2-letter abbr (e.g. LOUISIANA → LA)
+   * - Date fields: ensure YYYY-MM-DD string format
+   * Ensures Domo data behaves identically to API data.
+   */
+  function normalizePayloadForApiConsistency(payload) {
+    var FULL_NAME_TO_ABBR = {
+      ALABAMA: 'AL', ALASKA: 'AK', ARIZONA: 'AZ', ARKANSAS: 'AR', CALIFORNIA: 'CA',
+      COLORADO: 'CO', CONNECTICUT: 'CT', DELAWARE: 'DE', 'DISTRICT OF COLUMBIA': 'DC',
+      FLORIDA: 'FL', GEORGIA: 'GA', HAWAII: 'HI', IDAHO: 'ID', ILLINOIS: 'IL', INDIANA: 'IN',
+      IOWA: 'IA', KANSAS: 'KS', KENTUCKY: 'KY', LOUISIANA: 'LA', MAINE: 'ME', MARYLAND: 'MD',
+      MASSACHUSETTS: 'MA', MICHIGAN: 'MI', MINNESOTA: 'MN', MISSISSIPPI: 'MS', MISSOURI: 'MO',
+      MONTANA: 'MT', NEBRASKA: 'NE', NEVADA: 'NV', 'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ',
+      'NEW MEXICO': 'NM', 'NEW YORK': 'NY', 'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND',
+      OHIO: 'OH', OKLAHOMA: 'OK', OREGON: 'OR', PENNSYLVANIA: 'PA', 'RHODE ISLAND': 'RI',
+      'SOUTH CAROLINA': 'SC', 'SOUTH DAKOTA': 'SD', TENNESSEE: 'TN', TEXAS: 'TX', UTAH: 'UT',
+      VERMONT: 'VT', VIRGINIA: 'VA', WASHINGTON: 'WA', 'WEST VIRGINIA': 'WV', WISCONSIN: 'WI', WYOMING: 'WY',
+      'AMERICAN SAMOA': 'AS', GUAM: 'GU', 'NORTHERN MARIANA ISLANDS': 'MP', 'PUERTO RICO': 'PR',
+      'U.S. VIRGIN ISLANDS': 'VI', 'VIRGIN ISLANDS': 'VI'
+    };
+    var DATE_KEYS = ['StartDate', 'EstimatedConstructionStartDate', 'ConstructionLoanClosingDate',
+      'ExecutionDate', 'DueDiligenceDate', 'ClosingDate', 'ListedDate', 'LandClosingDate'];
+
+    function normalizeState(val) {
+      if (val == null || typeof val !== 'string') return null;
+      var s = val.trim();
+      if (!s) return null;
+      var upper = s.toUpperCase();
+      if (FULL_NAME_TO_ABBR[upper]) return FULL_NAME_TO_ABBR[upper];
+      if (s.length === 2) return upper;
+      return s;
+    }
+
+    function toDateString(val) {
+      if (val == null) return null;
+      if (typeof val === 'string') {
+        var m = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        return m ? m[0] : null;
+      }
+      if (val instanceof Date && !isNaN(val.getTime())) {
+        var y = val.getUTCFullYear();
+        var mo = String(val.getUTCMonth() + 1).padStart(2, '0');
+        var d = String(val.getUTCDate()).padStart(2, '0');
+        return y + '-' + mo + '-' + d;
+      }
+      return null;
+    }
+
+    function walk(obj) {
+      if (obj == null) return obj;
+      if (Array.isArray(obj)) return obj.map(walk);
+      if (typeof obj === 'object') {
+        var out = {};
+        for (var k in obj) if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
+        if (typeof out.State === 'string') out.State = normalizeState(out.State);
+        if (typeof out.HQState === 'string') out.HQState = normalizeState(out.HQState);
+        for (var i = 0; i < DATE_KEYS.length; i++) {
+          var key = DATE_KEYS[i];
+          if (key in out && out[key] != null) {
+            var ds = toDateString(out[key]);
+            if (ds != null) out[key] = ds;
+          }
+        }
+        return out;
+      }
+      return obj;
+    }
+    return walk(payload);
+  }
+
+  /**
+   * Detect if running inside Domo (has domo.get for dataset reads)
+   * Writes (create/update/delete) always go to backend API
+   */
+  function isDomoEnvironment() {
+    return typeof window !== 'undefined' && window.domo && typeof window.domo.get === 'function';
+  }
+
+  /**
+   * Fetch dataset from Domo by alias (must be in manifest datasetsMapping)
+   * @param {string} alias - Dataset alias from manifest
+   * @returns {Promise<Array>} Array of row objects
+   */
+  async function domoGet(alias) {
+    if (!isDomoEnvironment()) return [];
+    try {
+      const data = await window.domo.get('/data/v1/' + alias + '?limit=5000');
+      return Array.isArray(data) ? data : (data && data.rows ? data.rows : []);
+    } catch (err) {
+      console.warn('[Domo] Failed to fetch dataset', alias, err);
+      return [];
+    }
+  }
+
+  /**
+   * Load Deal Pipelines from Domo datasets (DealPipeline + Project joined)
+   * Used when running in Domo for faster load - avoids cold-start on Render API
+   * @returns {Promise<object>} { success: true, data: [...] } - same shape as API
+   */
+  async function getAllDealPipelinesFromDomo() {
+    const [dpRows, projRows, pmRows, brRows] = await Promise.all([
+      domoGet('dealPipeline'),
+      domoGet('project'),
+      domoGet('preConManager'),
+      domoGet('brokerReferralContact')
+    ]);
+
+    const projectMap = {};
+    (projRows || []).forEach(function (p) {
+      projectMap[p.ProjectId] = p;
+    });
+    const pmMap = {};
+    (pmRows || []).forEach(function (pm) {
+      pmMap[pm.PreConManagerId] = pm;
+    });
+    const brMap = {};
+    (brRows || []).forEach(function (br) {
+      brMap[br.BrokerReferralContactId] = br;
+    });
+
+    const joined = (dpRows || []).map(function (dp) {
+      const p = projectMap[dp.ProjectId] || {};
+      const pm = pmMap[dp.PreConManagerId] || {};
+      const br = brMap[dp.BrokerReferralContactId] || {};
+      return {
+        DealPipelineId: dp.DealPipelineId,
+        ProjectId: dp.ProjectId,
+        ProjectName: p.ProjectName,
+        City: p.City,
+        State: p.State,
+        Region: p.Region,
+        Units: p.Units,
+        ProductType: p.ProductType,
+        Stage: p.Stage,
+        EstimatedConstructionStartDate: p.EstimatedConstructionStartDate,
+        RegionName: p.Region,
+        PreConManagerName: pm.FullName,
+        PreConManagerEmail: pm.Email,
+        PreConManagerPhone: pm.Phone,
+        Bank: dp.Bank,
+        StartDate: dp.StartDate,
+        UnitCount: dp.UnitCount,
+        PreConManagerId: dp.PreConManagerId,
+        ConstructionLoanClosingDate: dp.ConstructionLoanClosingDate,
+        Notes: dp.Notes,
+        Priority: dp.Priority,
+        Acreage: dp.Acreage,
+        LandPrice: dp.LandPrice,
+        SqFtPrice: dp.SqFtPrice,
+        ExecutionDate: dp.ExecutionDate,
+        DueDiligenceDate: dp.DueDiligenceDate,
+        ClosingDate: dp.ClosingDate,
+        PurchasingEntity: dp.PurchasingEntity,
+        Cash: dp.Cash,
+        OpportunityZone: dp.OpportunityZone,
+        ClosingNotes: dp.ClosingNotes,
+        County: dp.County,
+        ZipCode: dp.ZipCode,
+        MFAcreage: dp.MFAcreage,
+        Zoning: dp.Zoning,
+        Zoned: dp.Zoned,
+        ListingStatus: dp.ListingStatus,
+        PriceRaw: dp.PriceRaw,
+        BrokerReferralContactId: dp.BrokerReferralContactId,
+        BrokerReferralSource: dp.BrokerReferralSource,
+        RejectedReason: dp.RejectedReason,
+        Latitude: dp.Latitude,
+        Longitude: dp.Longitude,
+        CoordinateSource: dp.CoordinateSource,
+        AsanaTaskGid: dp.AsanaTaskGid,
+        AsanaProjectGid: dp.AsanaProjectGid,
+        CreatedAt: dp.CreatedAt,
+        UpdatedAt: dp.UpdatedAt,
+        BrokerReferralContactName: br.Name,
+        BrokerReferralContactEmail: br.Email,
+        BrokerReferralContactPhone: br.Phone
+      };
+    });
+
+    return { success: true, data: normalizePayloadForApiConsistency(joined) };
+  }
+
+  /**
+   * Load Loans from Domo (for bank name resolution in deal pipeline)
+   */
+  async function getAllLoansFromDomo() {
+    const rows = await domoGet('loan');
+    return { success: true, data: rows || [] };
+  }
+
+  /**
+   * Load Banks from Domo (for bank name resolution in deal pipeline)
+   */
+  async function getAllBanksFromDomo() {
+    const rows = await domoGet('bank');
+    return { success: true, data: normalizePayloadForApiConsistency(rows || []) };
+  }
+
+  /**
+   * Load Regions from Domo (for dropdowns)
+   */
+  async function getAllRegionsFromDomo() {
+    const rows = await domoGet('region');
+    return { success: true, data: rows || [] };
+  }
+
+  /**
+   * Load Product Types from Domo (for dropdowns)
+   */
+  async function getAllProductTypesFromDomo() {
+    const rows = await domoGet('productType');
+    return { success: true, data: rows || [] };
+  }
+
+  /**
+   * Load Pre-Con Managers from Domo (for dropdowns)
+   */
+  async function getAllPreConManagersFromDomo() {
+    const rows = await domoGet('preConManager');
+    return { success: true, data: rows || [] };
+  }
 
 // ============================================================
 // AUTHENTICATION - Capital Markets Users
@@ -228,6 +459,13 @@
 
 // BANKS
   async function getAllBanks() {
+  if (isDomoEnvironment()) {
+    try {
+      return await getAllBanksFromDomo();
+    } catch (e) {
+      console.warn('[Domo] Fallback to API for banks:', e);
+    }
+  }
   return apiRequest('/api/core/banks');
 }
 
@@ -304,6 +542,13 @@
  * @returns {Promise<object>} { success: true, data: [{ PreConManagerId, FullName, Email, Phone, CreatedAt, UpdatedAt }] }
  */
   async function getAllPreConManagers() {
+  if (isDomoEnvironment()) {
+    try {
+      return await getAllPreConManagersFromDomo();
+    } catch (e) {
+      console.warn('[Domo] Fallback to API for pre-con managers:', e);
+    }
+  }
   return apiRequest('/api/core/precon-managers');
 }
 
@@ -431,6 +676,13 @@
  * @returns {Promise<object>} { success: true, data: [{ ProductTypeId, ProductTypeName, DisplayOrder, ... }] }
  */
   async function getAllProductTypes() {
+  if (isDomoEnvironment()) {
+    try {
+      return await getAllProductTypesFromDomo();
+    } catch (e) {
+      console.warn('[Domo] Fallback to API for product types:', e);
+    }
+  }
   return apiRequest('/api/core/product-types');
 }
 
@@ -480,6 +732,13 @@
  * @returns {Promise<object>} { success: true, data: [{ RegionId, RegionName, DisplayOrder, ... }] }
  */
   async function getAllRegions() {
+  if (isDomoEnvironment()) {
+    try {
+      return await getAllRegionsFromDomo();
+    } catch (e) {
+      console.warn('[Domo] Fallback to API for regions:', e);
+    }
+  }
   return apiRequest('/api/core/regions');
 }
 
@@ -532,6 +791,13 @@
 
 // LOANS
   async function getAllLoans() {
+  if (isDomoEnvironment()) {
+    try {
+      return await getAllLoansFromDomo();
+    } catch (e) {
+      console.warn('[Domo] Fallback to API for loans:', e);
+    }
+  }
   return apiRequest('/api/banking/loans');
 }
 
@@ -2398,6 +2664,13 @@
  * console.log('Deals:', result.data);
  */
   async function getAllDealPipelines() {
+  if (isDomoEnvironment()) {
+    try {
+      return await getAllDealPipelinesFromDomo();
+    } catch (e) {
+      console.warn('[Domo] Fallback to API for deals:', e);
+    }
+  }
   return apiRequest('/api/pipeline/deal-pipeline');
 }
 
