@@ -8097,6 +8097,52 @@ async function init() {
     }
 }
 
+/** Refresh deals from API (live DB) and re-render. Use after save/delete so UI shows new data immediately, not stale Domo cache. */
+async function refreshDealsFromApi() {
+    try {
+        const response = await API.getAllDealPipelines({ forceApi: true });
+        if (!response.success) return;
+        const dbDeals = response.data || [];
+        let loansMap = {};
+        let banksMap = {};
+        try {
+            const loansResponse = await API.getAllLoans();
+            if (loansResponse.success && loansResponse.data) {
+                loansResponse.data.forEach(loan => {
+                    if (loan.ProjectId) {
+                        if (!loansMap[loan.ProjectId]) loansMap[loan.ProjectId] = [];
+                        loansMap[loan.ProjectId].push(loan);
+                    }
+                });
+            }
+            const banksResponse = await API.getAllBanks();
+            if (banksResponse.success && banksResponse.data) {
+                banksResponse.data.forEach(bank => {
+                    if (bank.BankId) banksMap[bank.BankId] = bank;
+                });
+            }
+        } catch (e) { console.warn('Refresh loans/banks:', e); }
+        const mapped = dbDeals
+            .map(deal => mapDealPipelineDataToDeal(deal, loansMap, banksMap))
+            .filter(deal => deal !== null)
+            .filter(deal => {
+                const stage = normalizeStage(deal.Stage || deal.stage);
+                return stage !== 'HoldCo' && stage.toLowerCase() !== 'holdco';
+            });
+        allDeals.length = 0;
+        mapped.forEach(d => allDeals.push(d));
+        window.allDeals = allDeals;
+        buildBankNameMap(allDeals);
+        switchView(currentView, allDeals);
+        const pipelineView = document.getElementById('deal-pipeline-view');
+        if (pipelineView && pipelineView.style.display !== 'none') {
+            await renderDealPipelineTable({ forceApi: true });
+        }
+    } catch (e) {
+        console.warn('refreshDealsFromApi failed:', e);
+    }
+}
+
 // ============================================================
 // AUTHENTICATION AND EDIT MODE FUNCTIONS
 // ============================================================
@@ -8794,13 +8840,8 @@ async function handleDealSave(e) {
         
         if (result.success) {
             closeDealEditModal();
-            // Reload deals
-            await init();
-            // If Core Data Management (pipeline) view is visible, refresh the table so edits show
-            const pipelineView = document.getElementById('deal-pipeline-view');
-            if (pipelineView && pipelineView.style.display !== 'none') {
-                renderDealPipelineTable();
-            }
+            // Refresh from API so UI shows new value immediately (not stale Domo cache)
+            await refreshDealsFromApi();
         } else {
             throw new Error(result.error?.message || 'Failed to save deal');
         }
@@ -8829,8 +8870,8 @@ async function handleDealDelete() {
         const result = await API.deleteDealPipeline(currentEditingDeal.DealPipelineId);
         if (result.success) {
             closeDealEditModal();
-            // Reload deals
-            await init();
+            // Refresh from API so UI shows updated list immediately (not stale Domo cache)
+            await refreshDealsFromApi();
         } else {
             throw new Error(result.error?.message || 'Failed to delete deal');
         }
