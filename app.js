@@ -3096,15 +3096,23 @@ async function geocodeLocation(location) {
         return cityStateMap[location];
     }
     
-    // Try to extract city and state
-    const match = location.match(/([^,]+),\s*([A-Z]{2})/);
+    // Try case-insensitive exact match (handles "charlotte, nc", "Charlotte,NC", etc.)
+    const normalizedLoc = location.trim();
+    const exactKey = Object.keys(cityStateMap).find(k => k.toLowerCase() === normalizedLoc.toLowerCase());
+    if (exactKey) {
+        geocodeCache[location] = cityStateMap[exactKey];
+        return cityStateMap[exactKey];
+    }
+
+    // Try to extract city and state for partial match
+    const match = location.match(/([^,]+),\s*([A-Za-z]{2})$/);
     if (match) {
         const city = match[1].trim();
-        const state = match[2];
+        const state = match[2].toUpperCase();
         
-        // Try partial match
+        // Partial match: require city name in key (not state-only, or Charlotte could get Fayetteville, NC)
         for (const [key, coords] of Object.entries(cityStateMap)) {
-            if (key.includes(city) || key.includes(state)) {
+            if (key.toLowerCase().includes(city.toLowerCase())) {
                 geocodeCache[location] = coords;
                 return coords;
             }
@@ -3809,8 +3817,12 @@ async function initContactsMap(contacts) {
 
         const markers = [];
         for (const c of uniqueByLocation) {
+            const city = (c.City || c.city || '').trim();
+            const state = (c.State || c.state || '').trim();
+            // Prefer City, State for pin placement to avoid wrong-city geocoding (e.g. street address resolving to Fayetteville instead of Charlotte)
             const addr = getContactAddress(c);
-            const coords = await geocodeLocation(addr);
+            const locForGeocode = (city && state) ? `${city}, ${state}` : addr;
+            const coords = await geocodeLocation(locForGeocode);
             if (!coords) continue;
             const name = (c.Name || c.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const type = (c.Type || c.type || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
