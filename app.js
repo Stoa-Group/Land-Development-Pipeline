@@ -8077,23 +8077,22 @@ async function init() {
         // Build bank name mapping
         buildBankNameMap(allDeals);
         
-        if (allDeals.length > 0) {
-            // Set up navigation
-            document.querySelectorAll('.nav-tab').forEach(tab => {
-                tab.addEventListener('click', function() {
-                    const view = this.dataset.view;
-                    switchView(view, allDeals);
-                });
+        // Always set up nav tabs so Contacts/Upcoming Dates etc. work even when no deals (Contacts fetches its own data)
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                const view = this.dataset.view;
+                switchView(view, typeof allDeals !== 'undefined' ? allDeals : []);
             });
-            
-            // Set up back button
-            const backToNavBtn = document.getElementById('back-to-nav-btn');
-            if (backToNavBtn) {
-                backToNavBtn.addEventListener('click', function() {
-                    // Navigate back to list view (default view)
-                    switchView('list', allDeals);
-                });
-            }
+        });
+        
+        const backToNavBtn = document.getElementById('back-to-nav-btn');
+        if (backToNavBtn) {
+            backToNavBtn.addEventListener('click', function() {
+                switchView('list', typeof allDeals !== 'undefined' ? allDeals : []);
+            });
+        }
+        
+        if (allDeals.length > 0) {
             
             // Set up search input handler
             const searchInput = document.getElementById('search-filter');
