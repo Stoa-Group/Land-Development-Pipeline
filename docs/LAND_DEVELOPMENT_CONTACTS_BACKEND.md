@@ -171,16 +171,17 @@ or one-off:
 or both:  
 `{ "contactId": 5, "message": "Optional custom message" }`
 
-- If **contactId** is provided, look up the **core contact** and send the reminder to that contact’s Email (and optionally include Name/context).
+- If **contactId** is provided, look up the **core contact** and use ReminderToEmail from the extension - recipient is who should be reminded, not the contact. If empty, return 400. Override: if email in payload, use that.
 - If **email** is provided (and no contactId or contact has no email), send to that address.
-- **message** is optional; include in the reminder body.
+- **message** is optional; include in the reminder body. Email body should say: "You need to reach out to [Contact Name]" and optionally include Notes, Office Address, City/State, Phone.
 - Send the actual email via your mailer; use the same auth as the rest of the app (e.g. JWT).
 
 **Response:**  
-`{ success: true, message: "Reminder sent" }`  
-**Errors:** 400 if neither contactId nor email provided, or contact not found; 500 on send failure.
+`{ success: true, message: "Reminder sent" }` (single)  
+or batch: `{ success: true, sent: 4, failed: [] }`  
+**Errors:** 400 if neither contactId nor email provided, or contact not found, or no ReminderToEmail set when contactId used; 500 on send failure.
 
-**Frontend behavior:** The UI lets users search contacts, select one or multiple contacts, and/or enter one ad-hoc email. The frontend currently sends **one request per recipient** (repeated calls to this endpoint with `contactId` or `email` + optional `message`). No backend change is required for multi-select.
+**Frontend behavior:** The UI lets users search contacts, select one or multiple contacts, and/or enter one ad-hoc email. Each selected contact's reminder is sent to that contact's ReminderToEmail. Contacts without ReminderToEmail are skipped with clear feedback.
 
 ---
 
@@ -191,14 +192,14 @@ If you want to reduce round-trips, you may accept a **batch** body and send to a
 **Body (alternative):**  
 `{ "contactIds": [5, 12, 3], "email": "other@example.com", "message": "Optional custom message" }`
 
-- **contactIds** – array of core ContactIds; send one reminder per contact (to each contact’s Email).
+- **contactIds** – array of core ContactIds; send one reminder per contact (to each contact's ReminderToEmail (not the contact)).
 - **email** – optional; one ad-hoc recipient not in the list.
 - **message** – optional; same message for all.
 
 **Response (batch):**  
 `{ success: true, sent: 4, failed: [] }`  
 or partial failure:  
-`{ success: true, sent: 3, failed: [ { contactId: 12, error: "No email on file" } ] }`
+`{ success: true, sent: 3, failed: [ { contactId: 12, label: "John Doe", error: "No reminder recipient set. Edit the contact and set 'Send reminder to'." } ] }`
 
 If you implement batch, the api-client can expose e.g. `sendLandDevelopmentContactReminder(payload)` where `payload.contactIds` (array) is supported in addition to `payload.contactId` (single). The frontend can be updated to use batch when available.
 

@@ -3,6 +3,36 @@
  * Interactive dashboard for tracking construction deals
  */
 
+window.DEAL_PIPELINE_DEBUG = window.DEAL_PIPELINE_DEBUG || false;
+
+function _dpLog(...args) { if (window.DEAL_PIPELINE_DEBUG) console.log(...args); }
+function _dpInfo(...args) { if (window.DEAL_PIPELINE_DEBUG && typeof console !== 'undefined' && console.info) console.info(...args); }
+function _dpWarn(...args) { if (window.DEAL_PIPELINE_DEBUG) console.warn(...args); }
+function _dpError(...args) { if (window.DEAL_PIPELINE_DEBUG) console.error(...args); }
+
+/* ---------- Toast notifications ---------- */
+function showToast(message, type) {
+    type = type || 'info';
+    const container = document.getElementById('toast-container') || (function() {
+        const el = document.createElement('div');
+        el.id = 'toast-container';
+        el.className = 'toast-container';
+        document.body.appendChild(el);
+        return el;
+    })();
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    toast.textContent = message;
+    container.appendChild(toast);
+    const t = setTimeout(() => {
+        toast.classList.add('toast-exit');
+        setTimeout(() => toast.remove(), 200);
+    }, 4000);
+    toast._timeout = t;
+}
+
 /* ---------- DOMO Integration for Procore Data ---------- */
 function getDomoQuick() {
     // In Domo apps, domo is available as a global variable from ryuu.js
@@ -36,14 +66,14 @@ async function waitForDomo(maxWait = 5000) {
     while (waited < maxWait) {
         const domoObj = getDomoQuick();
         if (domoObj) {
-            console.log('Domo object found after', waited, 'ms');
+            _dpLog('Domo object found after', waited, 'ms');
             return domoObj;
         }
         await new Promise(resolve => setTimeout(resolve, interval));
         waited += interval;
     }
     
-    console.warn('Domo object not found after', maxWait, 'ms');
+    _dpWarn('Domo object not found after', maxWait, 'ms');
     return null;
 }
 
@@ -62,7 +92,7 @@ async function getAlias(name) {
             if (typeof domo !== 'undefined' && domo) {
                 domoObj = domo;
                 DOMO = domo;
-                console.log('Found domo object via global variable');
+                _dpLog('Found domo object via global variable');
             }
         } catch(e) {
             // Ignore
@@ -70,16 +100,16 @@ async function getAlias(name) {
     }
     
     if (!domoObj) {
-        console.warn(`domo object not available - cannot load alias "${name}". Check if running in Domo environment.`);
+        _dpWarn(`domo object not available - cannot load alias "${name}". Check if running in Domo environment.`);
         return [];
     }
     
     try {
-        console.log(`Loading alias "${name}" from Domo...`);
+        _dpLog(`Loading alias "${name}" from Domo...`);
         const response = await domoObj.get(`/data/v2/${name}?limit=10000`);
         return response || [];
     } catch (error) {
-        console.error(`Error loading alias "${name}":`, error);
+        _dpError(`Error loading alias "${name}":`, error);
         return [];
     }
 }
@@ -117,19 +147,19 @@ async function getDomoCurrentUser() {
     // 1) URL params – Domo often passes userEmail/userName/userId in the app iframe URL
     const urlUser = getDomoUserFromUrlParams();
     if (urlUser && urlUser.email) {
-        if (typeof console !== 'undefined' && console.info) console.info('[Domo SSO] User from URL params:', urlUser.email);
+        _dpInfo('[Domo SSO] User from URL params:', urlUser.email);
         return urlUser;
     }
 
     const domoObj = DOMO || getDomoQuick();
     if (!domoObj) {
-        if (typeof console !== 'undefined' && console.info) console.info('[Domo SSO] No Domo object and no URL params');
+        _dpInfo('[Domo SSO] No Domo object and no URL params');
         return null;
     }
     try {
         const userId = (domoObj.env && domoObj.env.userId) ? String(domoObj.env.userId) : null;
         if (!userId) {
-            if (typeof console !== 'undefined' && console.info) console.info('[Domo SSO] No domo.env.userId');
+            _dpInfo('[Domo SSO] No domo.env.userId');
             return null;
         }
         const user = { userId };
@@ -148,17 +178,17 @@ async function getDomoCurrentUser() {
                     if (profile.name) user.name = profile.name;
                 }
             } catch (profileErr) {
-                if (typeof console !== 'undefined' && console.info) console.info('[Domo SSO] User profile fetch failed (need email for backend):', profileErr && profileErr.message ? profileErr.message : profileErr);
+                _dpInfo('[Domo SSO] User profile fetch failed (need email for backend):', profileErr && profileErr.message ? profileErr.message : profileErr);
             }
         }
         // Backend requires email to look up auth.[User]; skip SSO if we don't have it
         if (!user.email || !user.email.trim()) {
-            if (typeof console !== 'undefined' && console.info) console.info('[Domo SSO] No email from Domo – SSO skipped. Backend needs email to log you in as admin.');
+            _dpInfo('[Domo SSO] No email from Domo – SSO skipped. Backend needs email to log you in as admin.');
             return null;
         }
         return user;
     } catch (e) {
-        console.warn('[Domo SSO] getDomoCurrentUser failed:', e);
+        _dpWarn('[Domo SSO] getDomoCurrentUser failed:', e);
         return null;
     }
 }
@@ -398,7 +428,7 @@ function buildProcoreMatches(procoreData, dbDeals) {
         // Try multiple possible field names in case the data structure varies
         const procoreName = (procoreProject.name || procoreProject.Name || procoreProject.projectName || procoreProject.ProjectName || '').trim();
         if (!procoreName) {
-            console.warn('[Procore Match] Skipping Procore project with no name field. Available keys:', Object.keys(procoreProject));
+            _dpWarn('[Procore Match] Skipping Procore project with no name field. Available keys:', Object.keys(procoreProject));
             continue;
         }
         
@@ -469,21 +499,21 @@ function buildProcoreMatches(procoreData, dbDeals) {
 // Sync Procore data to database (runs in background)
 async function syncProcoreDataToDatabase(procoreData, dbDeals) {
     if (!isAuthenticated) {
-        console.log('Not authenticated - skipping Procore sync');
+        _dpLog('Not authenticated - skipping Procore sync');
         return;
     }
     
     if (!procoreData || procoreData.length === 0) {
-        console.log('No Procore data to sync');
+        _dpLog('No Procore data to sync');
         return;
     }
     
     if (!dbDeals || dbDeals.length === 0) {
-        console.log('No database deals to sync with');
+        _dpLog('No database deals to sync with');
         return;
     }
     
-    console.log('Starting Procore data sync to database...');
+    _dpLog('Starting Procore data sync to database...');
     const updates = [];
     
     // Match Procore projects to DB projects
@@ -541,7 +571,7 @@ async function syncProcoreDataToDatabase(procoreData, dbDeals) {
                 if (asanaTaskGid && typeof API !== 'undefined' && typeof API.updateAsanaTaskStartDate === 'function' && formattedDate) {
                     updates.push(
                         API.updateAsanaTaskStartDate(asanaTaskGid, formattedDate).catch(err => {
-                            console.warn('Procore sync: could not update Asana start date for task ' + asanaTaskGid + ':', err);
+                            _dpWarn('Procore sync: could not update Asana start date for task ' + asanaTaskGid + ':', err);
                             return null;
                         })
                     );
@@ -617,7 +647,7 @@ async function syncProcoreDataToDatabase(procoreData, dbDeals) {
                             if (err && err.message && String(err.message).toLowerCase().includes('no fields to update')) {
                                 return null;
                             }
-                            console.error(`Error syncing DealPipeline data for deal ${dealPipelineId}:`, err);
+                            _dpError(`Error syncing DealPipeline data for deal ${dealPipelineId}:`, err);
                             return null;
                         })
                 );
@@ -634,7 +664,7 @@ async function syncProcoreDataToDatabase(procoreData, dbDeals) {
                             if (err && err.message && String(err.message).toLowerCase().includes('no fields to update')) {
                                 return null;
                             }
-                            console.error(`✗ Error syncing Procore data for project ${projectId}:`, err);
+                            _dpError(`✗ Error syncing Procore data for project ${projectId}:`, err);
                             return null;
                         })
                 );
@@ -656,6 +686,7 @@ const STAGE_DISPLAY_ORDER = [
     'Under Review',
     'Under Contract',
     'Under Construction',
+    'Lease-Up',
     'Stabilized',
     'Liquidated',
     'Commercial Land - Listed',
@@ -1383,7 +1414,7 @@ function mapAsanaDataToDeal(asanaItem) {
         if (procoreProjectMap[dealName] && procoreProjectMap[dealName].actualstartdate) {
             startDate = procoreProjectMap[dealName].actualstartdate;
             dateSource = 'procore';
-            console.log(`Using Procore actualstartdate for "${dealName}" (exact match): ${startDate}`);
+            _dpLog(`Using Procore actualstartdate for "${dealName}" (exact match): ${startDate}`);
         } else {
             // Try fuzzy matching - find Procore project that contains the deal name or vice versa
             const dealNameLower = dealName.toLowerCase().trim();
@@ -1420,7 +1451,7 @@ function mapAsanaDataToDeal(asanaItem) {
             if (matchedProject) {
                 startDate = matchedProject.data.actualstartdate;
                 dateSource = 'procore';
-                console.log(`Using Procore actualstartdate for "${dealName}" (fuzzy match to "${matchedProject.name}"): ${startDate}`);
+                _dpLog(`Using Procore actualstartdate for "${dealName}" (fuzzy match to "${matchedProject.name}"): ${startDate}`);
             }
         }
     }
@@ -1441,7 +1472,7 @@ function mapAsanaDataToDeal(asanaItem) {
     
     // Log if we couldn't find a date for a deal
     if (!startDate && dealName) {
-        console.warn(`No start date found for deal "${dealName}". Available Procore projects:`, Object.keys(procoreProjectMap));
+        _dpWarn(`No start date found for deal "${dealName}". Available Procore projects:`, Object.keys(procoreProjectMap));
     }
     
     // Check for Product Type custom field (prefer custom field over parsed/name-based)
@@ -1871,11 +1902,11 @@ function groupDealsByYear(deals) {
                 }
             } catch (e) {
                 // Keep as Unknown - log for debugging
-                console.warn(`Could not parse date for deal "${deal.Name || deal.name}":`, startDate, e);
+                _dpWarn(`Could not parse date for deal "${deal.Name || deal.name}":`, startDate, e);
             }
         } else {
             // Log deals without dates for debugging
-            console.warn(`Deal "${deal.Name || deal.name}" has no start date. Available fields:`, {
+            _dpWarn(`Deal "${deal.Name || deal.name}" has no start date. Available fields:`, {
                 'Start Date': deal['Start Date'],
                 'startDate': deal.startDate,
                 'Start Date Custom': deal['Start Date Custom'],
@@ -2562,33 +2593,47 @@ function calculateSummary(deals, excludeStart = true) {
             }
         }
         
-        // Dates (exclude START deals from dates)
+        // Dates (exclude START deals from dates) - use all deal date fields
         if (stage !== 'START') {
-            const startDate = deal['Start Date'] || deal.startDate;
-            if (startDate) {
-                const date = new Date(startDate);
-                if (!isNaN(date.getTime())) {
-                    const dateItem = {
-                        name: deal.Name || deal.name,
-                        date: date,
-                        dateType: 'Start date',
-                        stage: stage,
-                        location: getDealLocation(deal),
-                        units: deal['Unit Count'] || deal.unitCount,
-                        bank: deal.Bank || deal.bank
-                    };
-                    if (date >= new Date()) {
-                        summary.upcomingDates.push(dateItem);
-                    } else {
-                        summary.pastDates.push(dateItem);
-                    }
+            const dateFields = [
+                { key: 'Start Date', alt: 'startDate', dateType: 'Start date' },
+                { key: 'ExecutionDate', alt: null, dateType: 'Execution' },
+                { key: 'DueDiligenceDate', alt: null, dateType: 'Due Diligence' },
+                { key: 'ClosingDate', alt: null, dateType: 'Closing' },
+                { key: 'ConstructionLoanClosingDate', alt: null, dateType: 'Construction Loan Closing' }
+            ];
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            for (const f of dateFields) {
+                const val = deal[f.key] || (f.alt && deal[f.alt]);
+                if (!val) continue;
+                const date = new Date(val);
+                if (isNaN(date.getTime())) continue;
+                const dateItem = {
+                    name: deal.Name || deal.name,
+                    date: date,
+                    dateType: f.dateType,
+                    stage: stage,
+                    location: getDealLocation(deal),
+                    units: deal['Unit Count'] || deal.unitCount,
+                    bank: deal.Bank || deal.bank
+                };
+                const dateOnly = new Date(date);
+                dateOnly.setHours(0, 0, 0, 0);
+                if (dateOnly >= today) {
+                    summary.upcomingDates.push(dateItem);
+                } else {
+                    summary.pastDates.push(dateItem);
                 }
             }
         }
     });
     
-    // Sort dates
+    // Sort dates and cap upcoming to avoid performance issues
     summary.upcomingDates.sort((a, b) => a.date - b.date);
+    if (summary.upcomingDates.length > 100) {
+        summary.upcomingDates = summary.upcomingDates.slice(0, 100);
+    }
     summary.pastDates.sort((a, b) => b.date - a.date);
     
     // Absolutely ensure START is removed from byStage (in case it somehow got through)
@@ -3047,7 +3092,20 @@ function loadUpcomingDatesAsanaAndMerge(container, deals) {
                 if (deal && typeof showDealDetail === 'function') showDealDetail(deal);
             });
         });
-    }).catch(function() { /* Asana unavailable: keep deal-only rows */ });
+    }).catch(function() {
+        /* Asana unavailable: keep deal-only rows, show optional note */
+        const note = container && container.querySelector('.upcoming-asana-unavailable-note');
+        if (!note) {
+            const wrap = container && container.querySelector('.upcoming-dates-list');
+            if (wrap) {
+                const el = document.createElement('p');
+                el.className = 'upcoming-asana-unavailable-note';
+                el.setAttribute('aria-live', 'polite');
+                el.textContent = 'Asana tasks unavailable. Showing deal dates only.';
+                wrap.insertBefore(el, wrap.firstChild);
+            }
+        }
+    });
 }
 
 // Geocode location (simple city, state parser)
@@ -3144,7 +3202,7 @@ async function geocodeLocation(location) {
     } catch (error) {
         if (!window._geocodeNetworkWarned) {
             window._geocodeNetworkWarned = true;
-            console.warn('Geocoding unavailable (network/CSP). Add https://nominatim.openstreetmap.org to connect-src if needed. First failure:', location, error);
+            _dpWarn('Geocoding unavailable (network/CSP). Add https://nominatim.openstreetmap.org to connect-src if needed. First failure:', location, error);
         }
     }
     
@@ -3645,7 +3703,7 @@ async function initMap(deals) {
     // Ensure table container exists and is visible
     const tableContainerCheck = document.getElementById('map-table-container');
     if (!tableContainerCheck) {
-        console.error('map-table-container not found in DOM');
+        _dpError('map-table-container not found in DOM');
     } else {
         // Make sure it's visible
         tableContainerCheck.style.display = 'block';
@@ -3781,7 +3839,20 @@ let contactsMapInitInProgress = false;
 async function initContactsMap(contacts) {
     if (contactsMapInitInProgress) return;
     contactsMapInitInProgress = true;
+    const mapDiv = document.getElementById('contacts-map');
+    const panel = mapDiv ? mapDiv.closest('.contacts-map-panel') : null;
+    function showMapUnavailable() {
+        if (panel) {
+            panel.querySelectorAll('.contacts-map-unavailable').forEach(el => el.remove());
+            const el = document.createElement('div');
+            el.className = 'contacts-map-unavailable';
+            el.setAttribute('aria-live', 'polite');
+            el.textContent = 'Map unavailable. Geocoding service may be blocked or offline.';
+            panel.appendChild(el);
+        }
+    }
     try {
+        if (panel) panel.querySelectorAll('.contacts-map-unavailable').forEach(el => el.remove());
         if (contactsMapInstance) {
             contactsMapInstance.remove();
             contactsMapInstance = null;
@@ -3826,9 +3897,9 @@ async function initContactsMap(contacts) {
             if (!coords) continue;
             const name = (c.Name || c.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const type = (c.Type || c.type || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const city = (c.City || c.city || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const state = (c.State || c.state || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const locStr = [city, state].filter(Boolean).join(', ');
+            const cityEsc = (c.City || c.city || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const stateEsc = (c.State || c.state || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const locStr = [cityEsc, stateEsc].filter(Boolean).join(', ');
             const officeAddr = (c.OfficeAddress || c.officeAddress || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const id = getLandDevContactId(c);
             const popupHtml = `
@@ -3846,8 +3917,9 @@ async function initContactsMap(contacts) {
         if (markers.length > 0) {
             const group = new L.featureGroup(markers);
             contactsMapInstance.fitBounds(group.getBounds().pad(0.1));
+        } else if (uniqueByLocation.length > 0 && window._geocodeNetworkWarned) {
+            showMapUnavailable();
         } else if (list.length > 0) {
-            const panel = mapDiv.closest('.contacts-map-panel');
             if (panel) {
                 panel.querySelectorAll('.contacts-map-empty-msg').forEach(el => el.remove());
                 const emptyEl = document.createElement('div');
@@ -3870,6 +3942,9 @@ async function initContactsMap(contacts) {
                 if (contactsMapInstance) contactsMapInstance.closePopup();
             });
         }
+    } catch (err) {
+        _dpWarn('Contacts map init failed:', err);
+        showMapUnavailable();
     } finally {
         contactsMapInitInProgress = false;
     }
@@ -3883,14 +3958,14 @@ function focusMapOnCityFromMarker(cityName, location) {
     const markerData = allMapMarkers.find(m => m.location === location || m.city === cityName);
     
     if (!markerData) {
-        console.warn(`No marker found for city: ${cityName}`);
+        _dpWarn(`No marker found for city: ${cityName}`);
         return;
     }
     
     const cityDeals = markerData.deals;
     
     if (cityDeals.length === 0) {
-        console.warn(`No deals found for city: ${cityName}`);
+        _dpWarn(`No deals found for city: ${cityName}`);
         return;
     }
     
@@ -3914,7 +3989,7 @@ function focusMapOnCityFromMarker(cityName, location) {
     // If no deals have valid coordinates, still allow city view but just show deals in table
     // (This allows the feature to work even without Procore data locally)
     if (dealsWithValidCoords.length === 0) {
-        console.warn(`No deals with valid coordinates found for city: ${cityName}, showing deals in table only`);
+        _dpWarn(`No deals with valid coordinates found for city: ${cityName}, showing deals in table only`);
         // Still proceed to show deals in table, just won't show individual property markers
     }
     
@@ -4343,7 +4418,7 @@ function focusMapOnCity(cityName) {
     });
     
     if (cityDeals.length === 0) {
-        console.warn(`No deals found for city: ${cityName}`);
+        _dpWarn(`No deals found for city: ${cityName}`);
         return;
     }
     
@@ -4980,7 +5055,7 @@ function setupContactsViewHandlers(container) {
             const id = rawId != null && rawId !== '' ? parseInt(String(rawId).trim(), 10) : NaN;
             const name = (this.getAttribute('data-contact-name') || 'this contact').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             if (isNaN(id) || id < 1) {
-                alert('Cannot delete: invalid contact id.');
+                showToast('Cannot delete: invalid contact id.', 'error');
                 return;
             }
             if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
@@ -4990,7 +5065,7 @@ function setupContactsViewHandlers(container) {
                 await api.deleteLandDevelopmentContact(id);
                 switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
             } catch (err) {
-                alert(err?.message || err?.error?.message || 'Delete failed.');
+                showToast(err?.message || err?.error?.message || 'Delete failed.', 'error');
             }
         });
     });
@@ -5030,8 +5105,8 @@ function showContactModal(contact) {
                 <input type="number" id="contact-field-followup-days" min="0" placeholder="e.g. 180" value="${contact?.FollowUpTimeframeDays != null ? contact.FollowUpTimeframeDays : ''}" />
                 <div class="contact-scheduled-reminder-box" id="contact-scheduled-reminder-box" aria-live="polite">
                     <strong>Scheduled reminder</strong>
-                    <p class="contact-scheduled-reminder-text">When the follow-up date is reached, we'll send a reminder so <em>you</em> remember to reach out to this contact (e.g. &quot;You need to reach out to [contact] — it's been X days&quot;). The <strong>Remind</strong> button on the contact card sends an immediate email to the contact.</p>
-                    <label for="contact-reminder-select-input">Send reminder to (contact)</label>
+                    <p class="contact-scheduled-reminder-text">When the follow-up date is reached, we'll send a reminder so <em>you</em> remember to reach out to this contact (e.g. &quot;You need to reach out to [contact] — it's been X days&quot;). The <strong>Remind</strong> button sends an immediate reminder to the selected recipient so they remember to reach out to this contact.</p>
+                    <label for="contact-reminder-select-input">Send reminder to (who should be reminded)</label>
                     <div class="searchable-select-wrapper contact-reminder-select-wrapper" data-reminder-select="true">
                         <input type="text" id="contact-reminder-select-input" class="searchable-select-input" placeholder="Search contacts..." autocomplete="off" value="" data-reminder-to-email="" />
                         <div class="searchable-select-dropdown" style="display: none;">
@@ -5157,7 +5232,7 @@ function showContactModal(contact) {
     modal.querySelector('#contact-edit-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = (document.getElementById('contact-field-name')?.value || '').trim();
-        if (!name) { alert('Name is required.'); return; }
+        if (!name) { showToast('Name is required.', 'error'); return; }
         const data = {
             Name: name,
             Email: (document.getElementById('contact-field-email')?.value || '').trim() || undefined,
@@ -5181,7 +5256,7 @@ function showContactModal(contact) {
             close();
             switchView('contacts', typeof allDeals !== 'undefined' ? allDeals : []);
         } catch (err) {
-            alert(err.message || 'Save failed.');
+            showToast(err.message || 'Save failed.', 'error');
         }
     });
 }
@@ -5196,7 +5271,7 @@ function showSendReminderModal(contactOrContext, emailPrefill) {
     modal.innerHTML = `
         <div class="contacts-modal contacts-reminder-modal" role="dialog" aria-labelledby="reminder-modal-title">
             <h3 id="reminder-modal-title">Send reminder now</h3>
-            <p class="contacts-reminder-desc">Send an immediate email reminder. Search contacts and select one or more, or enter an email address not in the list.</p>
+            <p class="contacts-reminder-desc">Send an immediate reminder to the recipient so they remember to reach out to the selected contact(s). Each reminder goes to that contact&apos;s &quot;Send reminder to&quot; address. Select contacts that have this set, or enter an ad-hoc email.</p>
             <form id="send-reminder-form" class="contacts-form">
                 <label for="reminder-search">Search contacts</label>
                 <input type="text" id="reminder-search" class="reminder-search-input" placeholder="Type name or email…" autocomplete="off" />
@@ -5272,42 +5347,31 @@ function showSendReminderModal(contactOrContext, emailPrefill) {
         const contactIds = Array.from(checked).map(cb => parseInt(cb.value, 10)).filter(n => !isNaN(n));
         const emailVal = (modal.querySelector('#reminder-email')?.value || '').trim();
         if (contactIds.length === 0 && !emailVal) {
-            alert('Select at least one contact or enter an email address.');
+            showToast('Select at least one contact or enter an email address.', 'info');
             return;
         }
         const msg = (modal.querySelector('#reminder-message')?.value || '').trim();
         const send = typeof API !== 'undefined' && API.sendLandDevelopmentContactReminder;
         if (!send) {
-            alert('Contacts API not loaded. Ensure api-client is loaded and includes sendLandDevelopmentContactReminder.');
+            showToast('Contacts API not loaded. Ensure api-client is loaded and includes sendLandDevelopmentContactReminder.', 'error');
             return;
         }
-        const results = { sent: 0, failed: [] };
         try {
-            for (const id of contactIds) {
-                try {
-                    await API.sendLandDevelopmentContactReminder({ contactId: id, message: msg || undefined });
-                    results.sent += 1;
-                } catch (err) {
-                    results.failed.push({ id, label: `Contact ${id}`, error: err.message || String(err) });
-                }
-            }
-            if (emailVal) {
-                try {
-                    await API.sendLandDevelopmentContactReminder({ email: emailVal, message: msg || undefined });
-                    results.sent += 1;
-                } catch (err) {
-                    results.failed.push({ id: null, label: emailVal, error: err.message || String(err) });
-                }
-            }
+            const payload = { message: msg || undefined };
+            if (contactIds.length > 0) payload.contactIds = contactIds;
+            if (emailVal) payload.email = emailVal;
+            const resp = await API.sendLandDevelopmentContactReminder(payload);
             close();
-            if (results.failed.length === 0) {
-                alert(results.sent === 1 ? 'Reminder sent.' : `Reminder(s) sent to ${results.sent} recipient(s).`);
+            const sent = resp.sent ?? (resp.success && (contactIds.length > 0 || emailVal) ? 1 : 0);
+            if (resp.failed && resp.failed.length > 0) {
+                const failSummary = resp.failed.map(f => `${f.label || f.email || f.contactId}: ${f.error}`).join('; ');
+                showToast(`Sent to ${sent}. Failed: ${failSummary}`, 'error');
             } else {
-                const failMsg = results.failed.map(f => `${f.label}: ${f.error}`).join('\n');
-                alert(`Sent to ${results.sent} recipient(s). Failed:\n${failMsg}`);
+                showToast(sent === 1 ? 'Reminder sent.' : `Reminder(s) sent to ${sent} recipient(s).`, 'success');
             }
         } catch (err) {
-            alert(err.message || 'Failed to send reminder.');
+            const errMsg = err?.message || err?.error?.message || String(err);
+            showToast(errMsg || 'Failed to send reminder.', 'error');
         }
     });
     document.addEventListener('keydown', function escapeReminderModal(e) {
@@ -7092,13 +7156,11 @@ async function switchView(view, deals) {
         }
     }
     
-    // Update active tab
+    // Update active tab and aria-selected
     document.querySelectorAll('.nav-tab').forEach(tab => {
-        if (tab.dataset.view === view) {
-            tab.classList.add('active');
-        } else {
-            tab.classList.remove('active');
-        }
+        const isActive = tab.dataset.view === view;
+        tab.classList.toggle('active', isActive);
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
     });
     
     // Show/hide filter and sort controls (contacts has its own inline filters)
@@ -7294,14 +7356,25 @@ function updateVisibleDealCount(deals) {
     }
 }
 
-// Handle errors
-function showError(message) {
+// Handle errors (options: { showRetry?: boolean } – for load failures)
+function showError(message, options) {
     const container = document.getElementById('deal-list-container');
+    const showRetry = options && options.showRetry;
+    const retryHtml = showRetry
+        ? `<button type="button" class="error-retry-btn" id="error-retry-btn">Retry</button>`
+        : '';
     container.innerHTML = `
-        <div class="error">
-            <strong>Error:</strong> ${message}
+        <div class="error-state">
+            <p class="error-message">Unable to load pipeline. ${(message || '').replace(/^Error:\s*/i, '')}</p>
+            ${retryHtml}
         </div>
     `;
+    if (showRetry) {
+        const btn = document.getElementById('error-retry-btn');
+        if (btn && typeof init === 'function') {
+            btn.addEventListener('click', function() { init(); });
+        }
+    }
 }
 
 // Process custom field data - group by task gid and extract custom field values
@@ -8104,8 +8177,8 @@ async function init() {
             showError('No deals found in the database.');
         }
     } catch (error) {
-        console.error('Error loading deals:', error);
-        showError(`Failed to load deals: ${error.message || 'Unknown error'}`);
+        _dpError('Error loading deals:', error);
+        showError(error?.message || error?.error?.message || 'Unknown error', { showRetry: true });
     }
 }
 
@@ -8459,7 +8532,7 @@ async function handleLogin(e) {
 
 function toggleEditMode() {
     if (!isAuthenticated) {
-        alert('Please login first to enable edit mode.');
+        showToast('Please login first to enable edit mode.', 'info');
         return;
     }
     isEditMode = !isEditMode;
@@ -8518,7 +8591,7 @@ function parseRejectionReasonFromNotes(notes) {
 // Make functions globally accessible for inline onclick handlers
 window.openDealEditModal = async function(deal) {
     if (!isAuthenticated) {
-        alert('Please log in to edit deals.');
+        showToast('Please log in to edit deals.', 'info');
         return;
     }
     
@@ -8865,12 +8938,12 @@ async function handleDealSave(e) {
 
 async function handleDealDelete() {
     if (!isAuthenticated || !isEditMode) {
-        alert('You must be logged in and in edit mode to delete deals.');
+        showToast('You must be logged in and in edit mode to delete deals.', 'info');
         return;
     }
     
     if (!currentEditingDeal || !currentEditingDeal.DealPipelineId) {
-        alert('Cannot delete: Deal ID not found.');
+        showToast('Cannot delete: Deal ID not found.', 'error');
         return;
     }
     
@@ -8888,7 +8961,7 @@ async function handleDealDelete() {
             throw new Error(result.error?.message || 'Failed to delete deal');
         }
     } catch (error) {
-        alert(`Failed to delete deal: ${error.message || 'Unknown error'}`);
+        showToast(`Failed to delete deal: ${error.message || 'Unknown error'}`, 'error');
     }
 }
 
@@ -8920,13 +8993,13 @@ function addEditButtonToDeal(dealElement, deal) {
 
 function showDealPipelineView() {
     if (!isAuthenticated) {
-        alert('Please login to access Deal Pipeline management.');
+        showToast('Please login to access Deal Pipeline management.', 'info');
         return;
     }
     
     // Require Edit Mode to be on before opening Deal Pipeline
     if (!isEditMode) {
-        alert('Please click "Edit Mode" first to access Deal Pipeline management.');
+        showToast('Please click "Edit Mode" first to access Deal Pipeline management.', 'info');
         return;
     }
     
@@ -9648,13 +9721,13 @@ function updateSaveAllButtonVisibility() {
 // Save all modified deal pipeline rows
 async function saveAllDealPipelineRows() {
     if (!isAuthenticated || !isEditMode) {
-        alert('You must be logged in and in edit mode to save changes.');
+        showToast('You must be logged in and in edit mode to save changes.', 'info');
         return;
     }
     
     const changedRows = document.querySelectorAll('.deal-pipeline-table tr.has-changes');
     if (changedRows.length === 0) {
-        alert('No changes to save.');
+        showToast('No changes to save.', 'info');
         return;
     }
     
@@ -9836,7 +9909,7 @@ async function saveAllDealPipelineRows() {
     
     // Show results
     if (errorCount === 0) {
-        alert(`Successfully saved ${successCount} deal${successCount !== 1 ? 's' : ''}!`);
+        showToast(`Successfully saved ${successCount} deal${successCount !== 1 ? 's' : ''}!`, 'success');
         
         // Refresh data from database
         // Refresh the deal pipeline table (use API for instant fresh data after save)
@@ -9903,8 +9976,8 @@ async function saveAllDealPipelineRows() {
             // Still refresh the table even if main refresh fails
         }
     } else {
-        const errorMsg = `Saved ${successCount} deal${successCount !== 1 ? 's' : ''}, but ${errorCount} error${errorCount !== 1 ? 's' : ''} occurred:\n\n${errors.join('\n')}`;
-        alert(errorMsg);
+        const errorMsg = `Saved ${successCount} deal${successCount !== 1 ? 's' : ''}, but ${errorCount} error${errorCount !== 1 ? 's' : ''} occurred: ${errors.join('; ')}`;
+        showToast(errorMsg, 'error');
         // Still refresh even if there were some errors
         await renderDealPipelineTable({ forceApi: true });
     }
@@ -9997,7 +10070,7 @@ async function initializeSearchableSelects(preConManagers) {
                     }
                     
                     if (!managerId) {
-                        alert('Error: Could not find Pre-Con Manager ID. Please try selecting again or refresh the page.');
+                        showToast('Error: Could not find Pre-Con Manager ID. Please try selecting again or refresh the page.', 'error');
                         return;
                     }
                 }
@@ -10179,7 +10252,7 @@ function initBrokerReferralModal() {
         const email = (emailInput && emailInput.value) ? emailInput.value.trim() : '';
         const phone = (phoneInput && phoneInput.value) ? phoneInput.value.trim() : '';
         if (!name) {
-            alert('Name is required.');
+            showToast('Name is required.', 'error');
             if (nameInput) nameInput.focus();
             return;
         }
@@ -10283,7 +10356,7 @@ function initPreConManagerModal() {
         const phone = phoneInput.value.trim();
         
         if (!fullName) {
-            alert('Full Name is required.');
+            showToast('Full Name is required.', 'error');
             nameInput.focus();
             return;
         }
@@ -10312,7 +10385,7 @@ function initPreConManagerModal() {
                 });
                 
                 if (duplicateName) {
-                    alert(`A Pre-Con Manager with the name "${duplicateName.FullName || duplicateName.ManagerName}" already exists. Please use the existing manager or choose a different name.`);
+                    showToast(`A Pre-Con Manager with the name "${duplicateName.FullName || duplicateName.ManagerName}" already exists. Please use the existing manager or choose a different name.`, 'error');
                     nameInput.focus();
                     return;
                 }
@@ -10325,7 +10398,7 @@ function initPreConManagerModal() {
                     });
                     
                     if (duplicateEmail) {
-                        alert(`A Pre-Con Manager with the email "${duplicateEmail.Email}" already exists (${duplicateEmail.FullName || duplicateEmail.ManagerName}). Please use a different email address.`);
+                        showToast(`A Pre-Con Manager with the email "${duplicateEmail.Email}" already exists (${duplicateEmail.FullName || duplicateEmail.ManagerName}). Please use a different email address.`, 'error');
                         emailInput.focus();
                         return;
                     }
@@ -10344,7 +10417,7 @@ function initPreConManagerModal() {
                     });
                     
                     if (duplicatePhone) {
-                        alert(`A Pre-Con Manager with the phone number "${duplicatePhone.PhoneNumber || duplicatePhone.Phone}" already exists (${duplicatePhone.FullName || duplicatePhone.ManagerName}). Please use a different phone number.`);
+                        showToast(`A Pre-Con Manager with the phone number "${duplicatePhone.PhoneNumber || duplicatePhone.Phone}" already exists (${duplicatePhone.FullName || duplicatePhone.ManagerName}). Please use a different phone number.`, 'error');
                         phoneInput.focus();
                         return;
                     }
@@ -10433,13 +10506,13 @@ function initPreConManagerModal() {
                 // Close modal
                 closeModal();
                 
-                alert(`Pre-Con Manager "${fullName}" created successfully! The PreConManagerId (${newManager.PreConManagerId}) has been set. Please save the deal to persist this change.`);
+                showToast(`Pre-Con Manager "${fullName}" created successfully! Save the deal to persist this change.`, 'success');
             } else {
                 console.error('Failed to create Pre-Con Manager:', result);
                 throw new Error(result.error?.message || 'Failed to create Pre-Con Manager');
             }
         } catch (error) {
-            alert(`Failed to create Pre-Con Manager: ${error.message}`);
+            showToast(`Failed to create Pre-Con Manager: ${error.message}`, 'error');
         }
     });
 }
@@ -10758,7 +10831,7 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
     
     // Check authentication - allow if authenticated (edit mode is optional for viewing, but required for editing)
     if (!isAuthenticated) {
-        alert('You must be logged in to save changes. Please log in and try again.');
+        showToast('You must be logged in to save changes. Please log in and try again.', 'info');
         console.error('Save failed: isAuthenticated =', isAuthenticated, 'isEditMode =', isEditMode);
         return;
     }
@@ -10780,7 +10853,7 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
     }
     
     if (!row) {
-        alert('Could not find deal row to save.');
+        showToast('Could not find deal row to save.', 'error');
         return;
     }
     
@@ -10790,7 +10863,7 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
     // Validate required fields (use the row we're actually saving)
     const projectNameField = row.querySelector('[data-field="ProjectName"]');
     if (!projectNameField || !projectNameField.value.trim()) {
-        alert('Project Name is required. Enter a name in the Project Name column for this row.');
+        showToast('Project Name is required. Enter a name in the Project Name column for this row.', 'error');
         projectNameField?.focus();
         return;
     }
@@ -10956,7 +11029,7 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
                 if (fieldName === 'State') {
                     value = value.replace(/[^A-Za-z]/g, '').toUpperCase();
                     if (value.length !== 2) {
-                        alert('State must be exactly 2 letters (e.g., CA, TX, NY).');
+                        showToast('State must be exactly 2 letters (e.g., CA, TX, NY).', 'error');
                         field.focus();
                         return;
                     }
@@ -11013,7 +11086,7 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
             if (result.success) {
                 row.classList.remove('has-changes');
                 updateSaveAllButtonVisibility();
-                alert('Deal created successfully!');
+                showToast('Deal created successfully!', 'success');
             }
         } else {
             // Update existing deal
@@ -11021,13 +11094,13 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
             if (result.success) {
                 row.classList.remove('has-changes');
                 updateSaveAllButtonVisibility();
-                alert('Deal updated successfully!');
+                showToast('Deal updated successfully!', 'success');
             }
         }
         
         if (!result.success) {
             const errorMsg = result.error?.message || 'Unknown error';
-            alert(`Failed to ${isNewDeal ? 'create' : 'update'} deal: ${errorMsg}`);
+            showToast(`Failed to ${isNewDeal ? 'create' : 'update'} deal: ${errorMsg}`, 'error');
             console.error('Deal save failed:', result.error);
         }
         
@@ -11105,13 +11178,13 @@ window.saveDealPipelineRow = async function(dealIdOrEvent, projectId) {
             throw new Error(result.error?.message || `Failed to ${isNewDeal ? 'create' : 'update'} deal`);
         }
     } catch (error) {
-        alert(`Failed to ${isNewDeal ? 'create' : 'update'} deal: ${error.message}`);
+        showToast(`Failed to ${isNewDeal ? 'create' : 'update'} deal: ${error.message}`, 'error');
     }
 };
 
 window.deleteDealPipelineRow = async function(dealId) {
     if (!isAuthenticated || !isEditMode) {
-        alert('You must be logged in and in edit mode to delete deals.');
+        showToast('You must be logged in and in edit mode to delete deals.', 'info');
         return;
     }
     
@@ -11122,14 +11195,14 @@ window.deleteDealPipelineRow = async function(dealId) {
     try {
         const result = await API.deleteDealPipeline(dealId);
         if (result.success) {
-            alert('Deal deleted successfully!');
+            showToast('Deal deleted successfully!', 'success');
             // Refresh the table (use API for instant fresh data after delete)
             await renderDealPipelineTable({ forceApi: true });
         } else {
             throw new Error(result.error?.message || 'Failed to delete deal');
         }
     } catch (error) {
-        alert(`Failed to delete deal: ${error.message}`);
+        showToast(`Failed to delete deal: ${error.message}`, 'error');
     }
 };
 
@@ -11288,7 +11361,7 @@ async function exportPipelineToExcel() {
     try {
         // Check if ExcelJS is loaded
         if (typeof ExcelJS === 'undefined') {
-            alert('Excel library not loaded. Please refresh the page and try again.');
+            showToast('Excel library not loaded. Please refresh the page and try again.', 'error');
             return;
         }
 
@@ -11296,7 +11369,7 @@ async function exportPipelineToExcel() {
         showExportStageModal();
     } catch (error) {
         console.error('Error starting export:', error);
-        alert('Failed to start export. Please try again. Error: ' + error.message);
+        showToast('Failed to start export. Please try again. Error: ' + error.message, 'error');
     }
 }
 
@@ -11306,7 +11379,7 @@ function showExportStageModal() {
     const checkboxesContainer = document.getElementById('export-stage-checkboxes');
     
     if (!modal || !checkboxesContainer) {
-        alert('Export modal not found. Please refresh the page.');
+        showToast('Export modal not found. Please refresh the page.', 'error');
         return;
     }
     
@@ -11360,7 +11433,7 @@ function showExportStageModal() {
             .map(cb => cb.value);
         
         if (selectedStages.length === 0) {
-            alert('Please select at least one stage to export.');
+            showToast('Please select at least one stage to export.', 'info');
             return;
         }
         
@@ -11407,7 +11480,7 @@ function showExportTypeModal(selectedStages) {
     const modal = document.getElementById('export-type-modal');
     
     if (!modal) {
-        alert('Export type modal not found. Please refresh the page.');
+        showToast('Export type modal not found. Please refresh the page.', 'error');
         return;
     }
     
@@ -11553,7 +11626,7 @@ async function performExport(selectedStages, exportType) {
         });
 
         if (dealsToExport.length === 0) {
-            alert('No deals found to export for the selected stages.');
+            showToast('No deals found to export for the selected stages.', 'info');
             if (exportBtn) {
                 exportBtn.disabled = false;
                 exportBtn.textContent = originalText;
@@ -11930,7 +12003,7 @@ async function performExport(selectedStages, exportType) {
 
     } catch (error) {
         console.error('Error exporting pipeline:', error);
-        alert('Failed to export pipeline. Please try again or contact support. Error: ' + error.message);
+        showToast('Failed to export pipeline. Please try again or contact support. Error: ' + error.message, 'error');
         
         // Restore button state on error
         const exportBtn = document.getElementById('export-pipeline-btn');

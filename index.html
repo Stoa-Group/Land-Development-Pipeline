@@ -36,14 +36,14 @@
               </div>
             </div>
           </div>
-          <div class="nav-tabs">
-            <button class="nav-tab" data-view="overview">Overview</button>
-            <button class="nav-tab active" data-view="list">List</button>
-            <button class="nav-tab" data-view="location">Map</button>
-            <button class="nav-tab" data-view="timeline">Timeline</button>
-            <button class="nav-tab" data-view="upcoming-dates">Upcoming Dates</button>
-            <button class="nav-tab" data-view="units">Unit Summary</button>
-            <button class="nav-tab" data-view="contacts">Contacts</button>
+          <div class="nav-tabs" role="tablist" aria-label="Main navigation">
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="overview">Overview</button>
+            <button class="nav-tab active" role="tab" aria-selected="true" aria-controls="deal-list-container" data-view="list">List</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="location">Map</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="timeline">Timeline</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="upcoming-dates">Upcoming Dates</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="units">Unit Summary</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="contacts">Contacts</button>
           </div>
         </div>
 
@@ -60,35 +60,35 @@
             </div>
           </div>
           <div class="filter-group">
-            <label>Filter by State:</label>
-            <select id="state-filter" class="filter-select">
+            <label for="state-filter">Filter by State:</label>
+            <select id="state-filter" class="filter-select" aria-label="Filter by state">
               <option value="">All States</option>
             </select>
           </div>
           <div class="filter-group">
-            <label>Filter by Bank:</label>
-            <select id="bank-filter" class="filter-select">
+            <label for="bank-filter">Filter by Bank:</label>
+            <select id="bank-filter" class="filter-select" aria-label="Filter by bank">
               <option value="">All Banks</option>
             </select>
           </div>
           <div class="filter-group">
-            <label>Filter by Product Type:</label>
-            <select id="product-filter" class="filter-select">
+            <label for="product-filter">Filter by Product Type:</label>
+            <select id="product-filter" class="filter-select" aria-label="Filter by product type">
               <option value="">All Types</option>
             </select>
           </div>
           <div class="filter-group">
           </div>
           <div class="filter-group">
-            <label>Date Added:</label>
-            <select id="date-added-filter" class="filter-select">
+            <label for="date-added-filter">Date Added:</label>
+            <select id="date-added-filter" class="filter-select" aria-label="Filter by date added">
               <option value="1y">Last 1 year</option>
               <option value="unlimited">Unlimited</option>
             </select>
           </div>
           <div class="filter-group">
-            <label>Search:</label>
-            <input type="text" id="search-filter" class="filter-search" placeholder="Search deals...">
+            <label for="search-filter">Search:</label>
+            <input type="text" id="search-filter" class="filter-search" placeholder="Search deals..." aria-label="Search deals">
           </div>
           <button class="clear-filters-btn" onclick="clearFilters()">Clear Filters</button>
         </div>
@@ -96,15 +96,15 @@
         <!-- Sort Controls -->
         <div class="sort-controls" id="sort-controls" style="display: none;">
           <div class="sort-group">
-            <label>Sort by:</label>
-            <select id="sort-by" class="sort-select">
+            <label for="sort-by">Sort by:</label>
+            <select id="sort-by" class="sort-select" aria-label="Sort by">
               <option value="name">Name</option>
               <option value="stage">Stage</option>
               <option value="units">Unit Count</option>
               <option value="date" selected>Start Date</option>
               <option value="location">Location</option>
             </select>
-            <select id="sort-order" class="sort-select">
+            <select id="sort-order" class="sort-select" aria-label="Sort order">
               <option value="asc" selected>Ascending</option>
               <option value="desc">Descending</option>
             </select>

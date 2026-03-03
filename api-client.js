@@ -27,6 +27,10 @@
 (function(global) {
   'use strict';
 
+  function _apiLog(...args) { if (window.DEAL_PIPELINE_DEBUG) console.log(...args); }
+  function _apiWarn(...args) { if (window.DEAL_PIPELINE_DEBUG) console.warn(...args); }
+  function _apiError(...args) { if (window.DEAL_PIPELINE_DEBUG) console.error(...args); }
+
   // API Base URL - can be overridden by setting window.API_BASE_URL or calling setApiBaseUrl()
   let API_BASE_URL = (typeof window !== 'undefined' && window.API_BASE_URL) 
     ? window.API_BASE_URL 
@@ -44,7 +48,7 @@
    */
   function setApiBaseUrl(url) {
     API_BASE_URL = url;
-    console.log(`API Base URL updated to: ${API_BASE_URL}`);
+    _apiLog(`API Base URL updated to: ${API_BASE_URL}`);
   }
 
   /**
@@ -122,7 +126,7 @@
 
     return result;
   } catch (error) {
-    console.error('API Request Error:', error);
+    _apiError('API Request Error:', error);
     throw error;
   }
 }
@@ -224,7 +228,7 @@
       const data = await window.domo.get('/data/v1/' + alias + '?limit=5000');
       return Array.isArray(data) ? data : (data && data.rows ? data.rows : []);
     } catch (err) {
-      console.warn('[Domo] Failed to fetch dataset', alias, err);
+      _apiWarn('[Domo] Failed to fetch dataset', alias, err);
       return [];
     }
   }
@@ -463,7 +467,7 @@
     try {
       return await getAllBanksFromDomo();
     } catch (e) {
-      console.warn('[Domo] Fallback to API for banks:', e);
+      _apiWarn('[Domo] Fallback to API for banks:', e);
     }
   }
   return apiRequest('/api/core/banks');
@@ -546,7 +550,7 @@
     try {
       return await getAllPreConManagersFromDomo();
     } catch (e) {
-      console.warn('[Domo] Fallback to API for pre-con managers:', e);
+      _apiWarn('[Domo] Fallback to API for pre-con managers:', e);
     }
   }
   return apiRequest('/api/core/precon-managers');
@@ -680,7 +684,7 @@
     try {
       return await getAllProductTypesFromDomo();
     } catch (e) {
-      console.warn('[Domo] Fallback to API for product types:', e);
+      _apiWarn('[Domo] Fallback to API for product types:', e);
     }
   }
   return apiRequest('/api/core/product-types');
@@ -736,7 +740,7 @@
     try {
       return await getAllRegionsFromDomo();
     } catch (e) {
-      console.warn('[Domo] Fallback to API for regions:', e);
+      _apiWarn('[Domo] Fallback to API for regions:', e);
     }
   }
   return apiRequest('/api/core/regions');
@@ -795,7 +799,7 @@
     try {
       return await getAllLoansFromDomo();
     } catch (e) {
-      console.warn('[Domo] Fallback to API for loans:', e);
+      _apiWarn('[Domo] Fallback to API for loans:', e);
     }
   }
   return apiRequest('/api/banking/loans');
@@ -2670,7 +2674,7 @@
     try {
       return await getAllDealPipelinesFromDomo();
     } catch (e) {
-      console.warn('[Domo] Fallback to API for deals:', e);
+      _apiWarn('[Domo] Fallback to API for deals:', e);
     }
   }
   return apiRequest('/api/pipeline/deal-pipeline');
@@ -3017,7 +3021,7 @@
     }
     return null;
   } catch (error) {
-    console.error(`Error looking up IMS ID ${imsId}:`, error);
+    _apiError(`Error looking up IMS ID ${imsId}:`, error);
     return null;
   }
 }

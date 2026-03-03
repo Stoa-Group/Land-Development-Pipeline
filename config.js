@@ -17,8 +17,15 @@
 
 // API Configuration
 // Set this to your backend API server URL
-// If your backend runs on a different port locally, use: 'http://localhost:YOUR_PORT'
-window.API_BASE_URL = window.API_BASE_URL || 'https://stoagroupdb-ddre.onrender.com';
+// When served from localhost, use local backend (port 3002). Add ?api=render to force Render.
+var defaultApi = 'https://stoagroupdb-ddre.onrender.com';
+if (typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && !/[?&]api=render/.test(window.location.search)) {
+  defaultApi = 'http://localhost:3002';
+}
+window.API_BASE_URL = window.API_BASE_URL || defaultApi;
+
+// Debug flag: set to true to enable console logging (Domo, Procore, API, etc.)
+window.DEAL_PIPELINE_DEBUG = window.DEAL_PIPELINE_DEBUG || false;
 
 // Optional: Frontend-only configuration
 // These are safe to expose in the browser
