@@ -2863,6 +2863,31 @@ body.map-fullscreen-active {
     margin: 0;
 }
 
+.timeline-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.timeline-one-card-toggle-wrap {
+    display: flex;
+    align-items: center;
+}
+
+.timeline-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.timeline-one-card-checkbox {
+    cursor: pointer;
+}
+
 .timeline-date-filter {
     display: flex;
     align-items: center;
@@ -3477,6 +3502,14 @@ body.map-fullscreen-active {
     flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 8px;
+}
+
+.timeline-card-details .date-type-badge {
+    font-size: 10px;
+    color: var(--text-secondary);
+    background: var(--secondary-grey);
+    padding: 2px 6px;
+    border-radius: 4px;
 }
 
 .timeline-card-details .units-info,

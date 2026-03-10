@@ -749,6 +749,7 @@ let listViewMode = 'stage'; // 'stage' | 'product' | 'bank' - list view grouping
 window.productTypeSort = window.productTypeSort || { by: 'name', order: 'asc' }; // Sort config for product type view
 window.bankSort = window.bankSort || { by: 'name', order: 'asc' }; // Sort config for bank view
 window.listViewSort = window.listViewSort || { by: 'name', order: 'asc' }; // Sort config for list view (stage groups)
+window.timelineOneCardPerDeal = window.timelineOneCardPerDeal || false; // Timeline: show each deal once per quarter
 window.dealFilesTableSort = window.dealFilesTableSort || { by: 'name', order: 'asc' }; // Sort config for Deal Files table
 window.mapTableSort = window.mapTableSort || { by: 'name', order: 'asc' }; // Sort config for map/location table
 window.upcomingDatesSort = window.upcomingDatesSort || { by: 'date', order: 'asc' }; // Sort config for upcoming dates
@@ -1694,6 +1695,15 @@ function sortDeal(a, b, sortConfig) {
             aVal = new Date(dateA);
             bVal = new Date(dateB);
             break;
+        case 'dateAdded':
+            const createdA = a.CreatedAt || a.createdAt || a.createdat || null;
+            const createdB = b.CreatedAt || b.createdAt || b.createdat || null;
+            if (!createdA && !createdB) return 0;
+            if (!createdA) return 1;
+            if (!createdB) return -1;
+            aVal = new Date(createdA);
+            bVal = new Date(createdB);
+            break;
         case 'location':
             aVal = (a.Location || a.location || '').toLowerCase();
             bVal = (b.Location || b.location || '').toLowerCase();
@@ -2451,6 +2461,21 @@ function setupDrillDownHandlers() {
                     switchView('timeline', allDeals);
                 }
             }, timelineYearDebounceMs);
+        }
+    });
+    
+    // Timeline "One card per deal" toggle
+    document.body.addEventListener('change', function(e) {
+        if (e.target.id === 'timeline-one-card-per-deal' && e.target.classList.contains('timeline-one-card-checkbox')) {
+            e.preventDefault();
+            window.timelineOneCardPerDeal = !!e.target.checked;
+            const container = document.getElementById('deal-list-container');
+            if (container && currentView === 'timeline') {
+                container.innerHTML = renderTimeline(allDeals);
+                setupDrillDownHandlers();
+            } else {
+                switchView('timeline', allDeals);
+            }
         }
     });
     
@@ -5470,19 +5495,35 @@ function renderTimeline(deals) {
             ${renderActiveFilters()}
             <div class="timeline-board-header">
                 <h3>Timeline View - Organized by Quarter</h3>
-                <div class="timeline-year-filter">
-                    <label>Filter by Year:</label>
-                    <div class="quick-filter-buttons">
-                        <button class="quick-filter-btn ${!currentFilters.year ? 'active' : ''}" data-filter-type="year" data-filter-value="" style="cursor: pointer; padding: 8px 16px; margin: 4px;">All Years</button>
-                        ${yearsToDisplay.map(year => `
-                            <button class="quick-filter-btn ${currentFilters.year === year ? 'active' : ''}" data-filter-type="year" data-filter-value="${year}" style="cursor: pointer; padding: 8px 16px; margin: 4px;">${year}</button>
-                        `).join('')}
+                <div class="timeline-header-controls">
+                    <div class="timeline-one-card-toggle-wrap">
+                        <label class="timeline-toggle-label">
+                            <input type="checkbox" id="timeline-one-card-per-deal" ${window.timelineOneCardPerDeal ? 'checked' : ''} class="timeline-one-card-checkbox">
+                            One card per deal
+                        </label>
+                    </div>
+                    <div class="timeline-year-filter">
+                        <label>Filter by Year:</label>
+                        <div class="quick-filter-buttons">
+                            <button class="quick-filter-btn ${!currentFilters.year ? 'active' : ''}" data-filter-type="year" data-filter-value="" style="cursor: pointer; padding: 8px 16px; margin: 4px;">All Years</button>
+                            ${yearsToDisplay.map(year => `
+                                <button class="quick-filter-btn ${currentFilters.year === year ? 'active' : ''}" data-filter-type="year" data-filter-value="${year}" style="cursor: pointer; padding: 8px 16px; margin: 4px;">${year}</button>
+                            `).join('')}
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="timeline-board-columns">
                 ${periods.map(period => {
-                    const periodDeals = groupedByPeriod[period].sort((a, b) => a.date - b.date);
+                    let periodDeals = groupedByPeriod[period].sort((a, b) => a.date - b.date);
+                    if (window.timelineOneCardPerDeal) {
+                        const seen = new Set();
+                        periodDeals = periodDeals.filter(item => {
+                            if (seen.has(item.name)) return false;
+                            seen.add(item.name);
+                            return true;
+                        });
+                    }
                     const [, year] = period.split(' ').map(v => v.replace('Q', ''));
                     return `
                         <div class="timeline-column" data-period="${period}" data-year="${year}">
@@ -5501,6 +5542,7 @@ function renderTimeline(deals) {
                                             <div class="timeline-card-name">${item.name}</div>
                                             <div class="timeline-card-details">
                                                 <span class="stage-badge clickable ${stageConfig.class}" data-stage="${item.stage}">${item.stage}</span>
+                                                ${item.dateType ? `<span class="date-type-badge">${item.dateType}</span>` : ''}
                                                 ${item.location ? `<span class="location-badge clickable" data-location="${item.location}">${item.location}</span>` : ''}
                                                 ${item.units ? `<span class="units-info">${item.units} units</span>` : ''}
                                                 ${item.bank ? `<span class="bank-info">${item.bank}</span>` : ''}
@@ -8158,9 +8200,13 @@ async function init() {
                 sortControlsContainer.addEventListener('change', function(e) {
                     if (e.target.id === 'sort-by') {
                         currentSort.by = e.target.value;
+                        window.listViewSort = window.listViewSort || {};
+                        window.listViewSort.by = e.target.value;
                         switchView(currentView, allDeals);
                     } else if (e.target.id === 'sort-order') {
                         currentSort.order = e.target.value;
+                        window.listViewSort = window.listViewSort || {};
+                        window.listViewSort.order = e.target.value;
                         switchView(currentView, allDeals);
                     }
                 });
