@@ -80,6 +80,11 @@ async function waitForDomo(maxWait = 5000) {
 let DOMO = getDomoQuick();
 
 async function getAlias(name) {
+    // On localhost, skip Domo datasets - domo.js may inject a stub that 404s on /data/v1/...
+    const host = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
+    if (host === 'localhost' || host === '127.0.0.1') {
+        return [];
+    }
     // Try to get domo object fresh each time
     let domoObj = DOMO;
     if (!domoObj) {
@@ -749,7 +754,6 @@ let listViewMode = 'stage'; // 'stage' | 'product' | 'bank' - list view grouping
 window.productTypeSort = window.productTypeSort || { by: 'name', order: 'asc' }; // Sort config for product type view
 window.bankSort = window.bankSort || { by: 'name', order: 'asc' }; // Sort config for bank view
 window.listViewSort = window.listViewSort || { by: 'name', order: 'asc' }; // Sort config for list view (stage groups)
-window.timelineOneCardPerDeal = window.timelineOneCardPerDeal || false; // Timeline: show each deal once per quarter
 window.dealFilesTableSort = window.dealFilesTableSort || { by: 'name', order: 'asc' }; // Sort config for Deal Files table
 window.mapTableSort = window.mapTableSort || { by: 'name', order: 'asc' }; // Sort config for map/location table
 window.upcomingDatesSort = window.upcomingDatesSort || { by: 'date', order: 'asc' }; // Sort config for upcoming dates
@@ -1162,6 +1166,18 @@ function determineStage(name, notes, completed, color) {
     }
     
     return 'Prospective';
+}
+
+/** Remove duplicate deals by DealPipelineId (keeps first occurrence). Guards against API/Domo returning duplicates. */
+function deduplicateDbDealsByDealPipelineId(dbDeals) {
+    if (!dbDeals || !Array.isArray(dbDeals)) return [];
+    const seen = new Set();
+    return dbDeals.filter(function (d) {
+        const id = d.DealPipelineId;
+        if (id == null || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+    });
 }
 
 // Map database deal pipeline data to deal structure
@@ -2464,21 +2480,6 @@ function setupDrillDownHandlers() {
         }
     });
     
-    // Timeline "One card per deal" toggle
-    document.body.addEventListener('change', function(e) {
-        if (e.target.id === 'timeline-one-card-per-deal' && e.target.classList.contains('timeline-one-card-checkbox')) {
-            e.preventDefault();
-            window.timelineOneCardPerDeal = !!e.target.checked;
-            const container = document.getElementById('deal-list-container');
-            if (container && currentView === 'timeline') {
-                container.innerHTML = renderTimeline(allDeals);
-                setupDrillDownHandlers();
-            } else {
-                switchView('timeline', allDeals);
-            }
-        }
-    });
-    
     // Toggle map visibility in location view
     document.body.addEventListener('click', function(e) {
         if (e.target.id === 'toggle-map-btn' || e.target.closest('#toggle-map-btn')) {
@@ -3697,14 +3698,21 @@ async function initMap(deals) {
     }
     }
     
-    // Fit map to show all filtered markers
-    if (mapMarkers.length > 0) {
-        const group = new L.featureGroup(mapMarkers.map(m => m.marker));
-        mapInstance.fitBounds(group.getBounds().pad(0.1));
-    } else {
-        // If no markers (all filtered out), stay on continental US
-        mapInstance.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
+    // Fit map to show all filtered markers (defer so Split view container has dimensions)
+    function doFitAllDeals() {
+        if (!mapInstance) return;
+        if (mapInstance.invalidateSize) mapInstance.invalidateSize();
+        if (mapMarkers.length > 0) {
+            const group = new L.featureGroup(mapMarkers.map(m => m.marker));
+            const bounds = group.getBounds();
+            if (bounds && (typeof bounds.isValid !== 'function' || bounds.isValid())) {
+                mapInstance.fitBounds(bounds.pad(0.15), { padding: [60, 60], maxZoom: 12 });
+            }
+        } else {
+            mapInstance.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
+        }
     }
+    setTimeout(doFitAllDeals, 100);
     
     // Add event listeners for map movement
     mapInstance.on('moveend', updateMapTable);
@@ -4220,45 +4228,40 @@ function exitCityView() {
         if (m && m.marker) mapInstance.addLayer(m.marker);
     });
     
-    // Restore mapMarkers to all city markers
+    // Restore mapMarkers to all city markers (all locations, not just current city)
     mapMarkers = [...allMapMarkers];
     
-    // Fit map to show all markers, or default US view if none (e.g. city had no coords)
+    // Fit map to show ALL markers - defer slightly so restored layers are rendered first
     var defaultCenter = [39.5, -98.5];
     var defaultZoom = 4;
-    if (mapMarkers.length > 0) {
-        try {
-            var group = new L.featureGroup(mapMarkers.map(function(m) { return m.marker; }).filter(Boolean));
-            if (group.getLayers().length > 0) {
-                var bounds = group.getBounds();
-                var valid = bounds && (typeof bounds.isValid !== 'function' || bounds.isValid());
-                if (valid) {
-                    mapInstance.fitBounds(bounds.pad(0.1));
-                } else {
-                    var center = mapMarkers[0].coords || (mapMarkers[0].marker && mapMarkers[0].marker.getLatLng && mapMarkers[0].marker.getLatLng());
-                    if (center && (Array.isArray(center) || (center.lat != null && center.lng != null))) {
-                        var lat = Array.isArray(center) ? center[0] : center.lat;
-                        var lng = Array.isArray(center) ? center[1] : center.lng;
-                        mapInstance.setView([lat, lng], 6);
-                    } else {
-                        mapInstance.setView(defaultCenter, defaultZoom);
+    var markersToFit = allMapMarkers;
+    setTimeout(function() {
+        if (!mapInstance) return;
+        if (mapInstance.invalidateSize) mapInstance.invalidateSize();
+        if (markersToFit.length > 0) {
+            try {
+                var group = new L.featureGroup(markersToFit.map(function(m) { return m.marker; }).filter(Boolean));
+                if (group.getLayers().length > 0) {
+                    var bounds = group.getBounds();
+                    var valid = bounds && (typeof bounds.isValid !== 'function' || bounds.isValid());
+                    if (valid) {
+                        mapInstance.fitBounds(bounds.pad(0.15), { padding: [60, 60], maxZoom: 12 });
+                        return;
                     }
                 }
+            } catch (err) {}
+            var first = markersToFit[0];
+            var center = first && (first.coords || (first.marker && first.marker.getLatLng && first.marker.getLatLng()));
+            if (center) {
+                var c = Array.isArray(center) ? center : [center.lat, center.lng];
+                mapInstance.setView(c, 6);
             } else {
                 mapInstance.setView(defaultCenter, defaultZoom);
             }
-        } catch (err) {
-            if (mapMarkers[0] && (mapMarkers[0].coords || mapMarkers[0].marker)) {
-                var c = mapMarkers[0].coords || (mapMarkers[0].marker.getLatLng && mapMarkers[0].marker.getLatLng());
-                if (c) mapInstance.setView(Array.isArray(c) ? c : [c.lat, c.lng], 6);
-            } else {
-                mapInstance.setView(defaultCenter, defaultZoom);
-            }
+        } else {
+            mapInstance.setView(defaultCenter, defaultZoom);
         }
-    } else {
-        mapInstance.setView(defaultCenter, defaultZoom);
-    }
-    if (mapInstance.invalidateSize) mapInstance.invalidateSize();
+    }, 50);
     
     // Update table to show all filtered deals
     const allFilteredDeals = mapMarkers.reduce((acc, markerData) => {
@@ -4335,6 +4338,27 @@ function setupMapViewControls() {
     if (mapViewBtn) mapViewBtn.addEventListener('click', function() { setMapPanelView('map'); });
     if (splitViewBtn) splitViewBtn.addEventListener('click', function() { setMapPanelView('split'); });
     if (listViewBtn) listViewBtn.addEventListener('click', function() { setMapPanelView('list'); });
+
+    // Mobile/small screens: show Map or List only (no Split) for easier use
+    function isMapSmallScreen() {
+        return (typeof window !== 'undefined' && (window.innerWidth <= 900 || window.innerHeight <= 760));
+    }
+    function updateMapSmallScreenLayout() {
+        if (!panel || !splitViewBtn) return;
+        var small = isMapSmallScreen();
+        splitViewBtn.style.display = small ? 'none' : '';
+        if (small && panel.classList.contains('view-split')) {
+            setMapPanelView('map');
+        }
+    }
+    updateMapSmallScreenLayout();
+    window.addEventListener('resize', function onMapResize() {
+        if (!document.getElementById('map-view-panel')) {
+            window.removeEventListener('resize', onMapResize);
+            return;
+        }
+        updateMapSmallScreenLayout();
+    });
 
     // Full screen map – set up first so it works even if mapInstance isn't ready yet
     const mapCanvasContainer = document.getElementById('map-canvas-container');
@@ -4419,9 +4443,18 @@ function setupMapViewControls() {
 
     if (fitAllBtn) {
         fitAllBtn.addEventListener('click', function() {
-            if (!mapInstance || mapMarkers.length === 0) return;
+            if (!mapInstance) return;
+            if (isCityView) {
+                exitCityView();
+                return;
+            }
+            if (mapMarkers.length === 0) return;
+            if (mapInstance.invalidateSize) mapInstance.invalidateSize();
             const group = new L.featureGroup(mapMarkers.map(m => m.marker));
-            mapInstance.fitBounds(group.getBounds().pad(0.1));
+            const bounds = group.getBounds();
+            if (bounds && (typeof bounds.isValid !== 'function' || bounds.isValid())) {
+                mapInstance.fitBounds(bounds.pad(0.15), { padding: [60, 60], maxZoom: 12 });
+            }
         });
     }
 }
@@ -5448,23 +5481,37 @@ function renderTimeline(deals) {
     // Use the union of both to ensure we have all years
     const allYears = [...new Set([...allYearsFromAllDeals, ...allYearsFromFiltered])].sort((a, b) => parseInt(b) - parseInt(a));
     
-    // Don't filter by year - show all dates (timeline shows all years, just scrolls to current year)
-    const filteredDates = allDates;
+    // One card per deal: for each deal, keep only the earliest date
+    const dealToEarliest = {};
+    allDates.forEach(item => {
+        try {
+            const date = new Date(item.date);
+            if (isNaN(date.getTime())) return;
+            const name = item.name || '';
+            if (!name) return;
+            const existing = dealToEarliest[name];
+            if (!existing || date < new Date(existing.date)) {
+                dealToEarliest[name] = item;
+            }
+        } catch (e) {
+            console.warn('Error processing date in timeline:', item.date);
+        }
+    });
+    const onePerDeal = Object.values(dealToEarliest);
     
     // Group by year/quarter
     const groupedByPeriod = {};
-    filteredDates.forEach(item => {
+    onePerDeal.forEach(item => {
         try {
-        const date = new Date(item.date);
+            const date = new Date(item.date);
             if (!isNaN(date.getTime())) {
-        const year = date.getFullYear();
-        const quarter = Math.floor(date.getMonth() / 3) + 1;
-        const periodKey = `Q${quarter} ${year}`;
-        
-        if (!groupedByPeriod[periodKey]) {
-            groupedByPeriod[periodKey] = [];
-        }
-        groupedByPeriod[periodKey].push(item);
+                const year = date.getFullYear();
+                const quarter = Math.floor(date.getMonth() / 3) + 1;
+                const periodKey = `Q${quarter} ${year}`;
+                if (!groupedByPeriod[periodKey]) {
+                    groupedByPeriod[periodKey] = [];
+                }
+                groupedByPeriod[periodKey].push(item);
             }
         } catch (e) {
             console.warn('Error processing date in timeline:', item.date);
@@ -5496,12 +5543,6 @@ function renderTimeline(deals) {
             <div class="timeline-board-header">
                 <h3>Timeline View - Organized by Quarter</h3>
                 <div class="timeline-header-controls">
-                    <div class="timeline-one-card-toggle-wrap">
-                        <label class="timeline-toggle-label">
-                            <input type="checkbox" id="timeline-one-card-per-deal" ${window.timelineOneCardPerDeal ? 'checked' : ''} class="timeline-one-card-checkbox">
-                            One card per deal
-                        </label>
-                    </div>
                     <div class="timeline-year-filter">
                         <label>Filter by Year:</label>
                         <div class="quick-filter-buttons">
@@ -5515,15 +5556,7 @@ function renderTimeline(deals) {
             </div>
             <div class="timeline-board-columns">
                 ${periods.map(period => {
-                    let periodDeals = groupedByPeriod[period].sort((a, b) => a.date - b.date);
-                    if (window.timelineOneCardPerDeal) {
-                        const seen = new Set();
-                        periodDeals = periodDeals.filter(item => {
-                            if (seen.has(item.name)) return false;
-                            seen.add(item.name);
-                            return true;
-                        });
-                    }
+                    const periodDeals = groupedByPeriod[period].sort((a, b) => a.date - b.date);
                     const [, year] = period.split(' ').map(v => v.replace('Q', ''));
                     return `
                         <div class="timeline-column" data-period="${period}" data-year="${year}">
@@ -7830,6 +7863,30 @@ function updateFullscreenDealsList() {
 window.updateFullscreenDealsList = updateFullscreenDealsList;
 
 // One-time delegated handler for map fullscreen (works in Domo/iframe and when map is re-rendered)
+function initBackToTopButton() {
+    var btn = document.getElementById('back-to-top-btn');
+    if (!btn) return;
+    function updateVisibility() {
+        if (document.body.classList.contains('map-fullscreen-active')) {
+            btn.style.display = 'none';
+            return;
+        }
+        var listEl = document.querySelector('.list-view-container');
+        var listScroll = listEl ? listEl.scrollTop : 0;
+        var winScroll = typeof window !== 'undefined' ? (window.scrollY || window.pageYOffset || 0) : 0;
+        btn.style.display = (listScroll > 80 || winScroll > 80) ? 'block' : 'none';
+    }
+    function scrollToTop() {
+        var listEl = document.querySelector('.list-view-container');
+        if (listEl) listEl.scrollTop = 0;
+        if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    btn.addEventListener('click', scrollToTop);
+    var listEl = document.querySelector('.list-view-container');
+    if (listEl) listEl.addEventListener('scroll', updateVisibility);
+    window.addEventListener('scroll', updateVisibility, { passive: true });
+}
+
 function initMapFullscreenDelegation() {
     if (window._mapFullscreenDelegationDone) return;
     window._mapFullscreenDelegationDone = true;
@@ -7968,6 +8025,8 @@ async function init() {
     initStageFilterDropdowns();
     // One-time: map fullscreen button (delegated so it works in Domo/iframe and after re-render)
     initMapFullscreenDelegation();
+    // Back to top button – lets user return to nav tabs when scrolled down
+    initBackToTopButton();
     // Show loading state
     const container = document.getElementById('deal-list-container');
     container.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
@@ -8104,7 +8163,9 @@ async function init() {
         
         // Map database deals to UI format with loans and banks data
         // This uses window.PROCORE_MATCHES which was just built above
-        allDeals = dbDeals
+        // Deduplicate by DealPipelineId – guards against API/Domo returning duplicates
+        const uniqueDbDeals = deduplicateDbDealsByDealPipelineId(dbDeals);
+        allDeals = uniqueDbDeals
             .map(deal => mapDealPipelineDataToDeal(deal, loansMap, banksMap))
             .filter(deal => deal !== null) // Filter out null deals (START deals)
             .filter(deal => {
@@ -8219,7 +8280,7 @@ async function init() {
             // Render initial view
             switchView(currentView, allDeals);
         } else {
-            showError('No deals found in the database.');
+            showError('No deals found in the database.', { showRetry: true });
         }
     } catch (error) {
         _dpError('Error loading deals:', error);
@@ -8252,7 +8313,8 @@ async function refreshDealsFromApi() {
                 });
             }
         } catch (e) { console.warn('Refresh loans/banks:', e); }
-        const mapped = dbDeals
+        const uniqueDbDeals = deduplicateDbDealsByDealPipelineId(dbDeals);
+        const mapped = uniqueDbDeals
             .map(deal => mapDealPipelineDataToDeal(deal, loansMap, banksMap))
             .filter(deal => deal !== null)
             .filter(deal => {

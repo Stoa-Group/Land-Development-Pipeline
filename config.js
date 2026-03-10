@@ -17,9 +17,10 @@
 
 // API Configuration
 // Set this to your backend API server URL
-// When served from localhost, use local backend (port 3002). Add ?api=render to force Render.
+// When on localhost: use Render API by default so static server works without running API locally.
+// Add ?api=local to use local backend (port 3002) when running the API locally.
 var defaultApi = 'https://stoagroupdb-ddre.onrender.com';
-if (typeof window !== 'undefined' && window.location && window.location.hostname === 'localhost' && !/[?&]api=render/.test(window.location.search)) {
+if (typeof window !== 'undefined' && window.location && /[?&]api=local\b/.test(window.location.search)) {
   defaultApi = 'http://localhost:3002';
 }
 window.API_BASE_URL = window.API_BASE_URL || defaultApi;

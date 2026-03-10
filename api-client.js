@@ -212,9 +212,14 @@
   /**
    * Detect if running inside Domo (has domo.get for dataset reads)
    * Writes (create/update/delete) always go to backend API
+   * On localhost/127.0.0.1 we always use the API - domo.js may inject a stub domo object
+   * that would 404 when fetching /data/v1/... from the static server
    */
   function isDomoEnvironment() {
-    return typeof window !== 'undefined' && window.domo && typeof window.domo.get === 'function';
+    if (typeof window === 'undefined') return false;
+    const host = (window.location && window.location.hostname) || '';
+    if (host === 'localhost' || host === '127.0.0.1') return false;
+    return !!(window.domo && typeof window.domo.get === 'function');
   }
 
   /**
@@ -259,7 +264,14 @@
       brMap[br.BrokerReferralContactId] = br;
     });
 
-    const joined = (dpRows || []).map(function (dp) {
+    var seen = {};
+    var uniqueDpRows = (dpRows || []).filter(function (dp) {
+      var id = dp.DealPipelineId;
+      if (id == null || seen[id]) return false;
+      seen[id] = true;
+      return true;
+    });
+    const joined = uniqueDpRows.map(function (dp) {
       const p = projectMap[dp.ProjectId] || {};
       const pm = pmMap[dp.PreConManagerId] || {};
       const br = brMap[dp.BrokerReferralContactId] || {};

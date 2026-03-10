@@ -346,17 +346,17 @@ body.deal-pipeline-open {
 
 #deal-list-container:has(.map-view-panel),
 #deal-list-container.view-location {
-    flex: 1 1 0;
-    min-height: calc(100vh - 180px);
+    flex: 0 0 auto;
+    min-height: min-content;
     display: flex;
     flex-direction: column;
     overflow: visible;
 }
 
 .map-view-panel {
-    flex: 1 1 0;
-    min-height: 60vh;
-    height: 100%;
+    flex: 0 0 auto;
+    min-height: 65vh;
+    height: auto;
 }
 
 
@@ -1914,6 +1914,7 @@ body.deal-pipeline-open {
 /* More space between sort bar and map "Enter a location" bar */
 .list-view-container:has(.map-view-panel) {
     padding-top: 28px;
+    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
 }
 
 .sort-group {
@@ -2057,6 +2058,7 @@ body.deal-pipeline-open {
     height: 100%;
     min-height: 60vh;
     padding: 0;
+    padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px));
     margin: 0;
 }
 
@@ -2065,7 +2067,7 @@ body.deal-pipeline-open {
     position: relative;
     width: 100%;
     max-width: 820px;
-    margin: 28px auto 32px;
+    margin: 28px auto 120px;
     aspect-ratio: 16 / 9;
     height: auto;
     overflow: hidden;
@@ -2113,6 +2115,32 @@ body.deal-pipeline-open {
 body.map-fullscreen-active {
     overflow: hidden;
     -webkit-overflow-scrolling: touch;
+}
+
+/* Back to top – floating button to return to nav tabs when scrolled down */
+.back-to-top-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font-medium);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    background: var(--primary-green);
+    color: var(--white);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    transition: opacity 0.2s, transform 0.2s;
+}
+.back-to-top-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-2px);
+}
+.back-to-top-btn:active {
+    transform: translateY(0);
 }
 
 /* Exit full screen button – shown only when map is full screen */
@@ -2410,7 +2438,7 @@ body.map-fullscreen-active {
     }
     .map-canvas-container {
         max-width: 90%;
-        margin: 24px auto 28px;
+        margin: 24px auto 40px;
         aspect-ratio: 16 / 9;
         height: auto;
         touch-action: manipulation;
@@ -2447,23 +2475,84 @@ body.map-fullscreen-active {
     }
 }
 
+/* Mobile / small screens: hide Split – show Map or List only for better usability */
+@media (max-width: 900px), (max-height: 760px) {
+    .map-view-panel #map-view-split-btn {
+        display: none !important;
+    }
+    .map-view-panel .map-controls {
+        padding: 12px;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .map-view-panel .map-view-toggle {
+        flex: 1;
+    }
+    .map-view-panel .map-search-row {
+        flex: 1 1 100%;
+    }
+    .map-view-panel .map-toolbar {
+        flex-wrap: wrap;
+    }
+    .map-view-panel .map-canvas-container {
+        margin-bottom: 32px;
+    }
+    .map-view-panel.view-split .map-split-wrap {
+        flex-direction: column;
+        gap: 16px;
+    }
+    .map-view-panel.view-split .map-canvas-container {
+        flex: 0 0 auto;
+        max-width: 100%;
+        aspect-ratio: 4 / 3;
+        min-height: 200px;
+    }
+    .map-view-panel.view-split #map-table-container {
+        flex: 1 1 auto;
+        min-height: 240px;
+    }
+}
+
+/* Very small screens: single pane only (handled by JS – Split hidden above) */
+@media (max-width: 480px) {
+    .map-view-panel {
+        padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+    }
+    .map-view-panel .map-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .map-view-panel .map-search-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .map-view-panel .map-location-search-input {
+        min-width: 0;
+    }
+    .map-view-panel .map-toolbar {
+        justify-content: flex-start;
+    }
+}
+
 /* Split mode: map left, list right (default when Map tab loads) */
 .map-view-panel.view-split .map-split-wrap {
     display: flex;
     flex-direction: row;
     gap: 20px;
     align-items: stretch;
-    min-height: 0;
-    flex: 1 1 auto;
+    min-height: 420px;
+    flex: 0 0 auto;
+    margin-bottom: 160px;
+    padding-bottom: 40px;
 }
 .map-view-panel.view-split .map-canvas-container {
     flex: 0 1 48%;
     min-width: 0;
     max-width: none;
-    margin: 0;
+    margin: 0 auto 80px;
     aspect-ratio: 16 / 9;
     height: auto;
-    align-self: flex-start;
+    align-self: center;
 }
 .map-view-panel.view-split #map-table-container {
     display: flex !important;
@@ -2474,6 +2563,8 @@ body.map-fullscreen-active {
     overflow-y: auto;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: 48px;
+    box-sizing: border-box;
 }
 /* Keep list content visible in split view (same as list mode – no flex collapse) */
 .map-view-panel.view-split .map-table-container .stage-group,
@@ -2486,9 +2577,16 @@ body.map-fullscreen-active {
     overflow: visible;
 }
 
-/* Map mode: map only, list hidden */
+/* Map mode: map only – modest padding so map is visible, extra bottom for scroll room */
+.map-view-panel.view-map {
+    justify-content: flex-start;
+    padding-top: 16px;
+    padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px));
+}
 .map-view-panel.view-map .map-canvas-container {
     display: block !important;
+    margin-top: auto;
+    margin-bottom: auto;
 }
 
 .map-view-panel.view-map .location-map-canvas,
@@ -2531,6 +2629,7 @@ body.map-fullscreen-active {
     overflow-y: auto !important;
     overflow-x: auto !important;
     margin-top: 0;
+    padding-bottom: 48px;
     -webkit-overflow-scrolling: touch;
 }
 /* Keep table content visible inside map list (no flex collapse) */
@@ -2868,24 +2967,6 @@ body.map-fullscreen-active {
     align-items: center;
     gap: 24px;
     flex-wrap: wrap;
-}
-
-.timeline-one-card-toggle-wrap {
-    display: flex;
-    align-items: center;
-}
-
-.timeline-toggle-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text-primary);
-    cursor: pointer;
-}
-
-.timeline-one-card-checkbox {
-    cursor: pointer;
 }
 
 .timeline-date-filter {
