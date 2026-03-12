@@ -27,10 +27,6 @@
 (function(global) {
   'use strict';
 
-  function _apiLog(...args) { if (window.DEAL_PIPELINE_DEBUG) console.log(...args); }
-  function _apiWarn(...args) { if (window.DEAL_PIPELINE_DEBUG) console.warn(...args); }
-  function _apiError(...args) { if (window.DEAL_PIPELINE_DEBUG) console.error(...args); }
-
   // API Base URL - can be overridden by setting window.API_BASE_URL or calling setApiBaseUrl()
   let API_BASE_URL = (typeof window !== 'undefined' && window.API_BASE_URL) 
     ? window.API_BASE_URL 
@@ -48,7 +44,7 @@
    */
   function setApiBaseUrl(url) {
     API_BASE_URL = url;
-    _apiLog(`API Base URL updated to: ${API_BASE_URL}`);
+    console.log(`API Base URL updated to: ${API_BASE_URL}`);
   }
 
   /**
@@ -86,7 +82,6 @@
   API.setApiBaseUrl = setApiBaseUrl;
   API.getApiBaseUrl = getApiBaseUrl;
   API.setAuthToken = setAuthToken;
-  API.isDomoEnvironment = isDomoEnvironment;
   API.getAuthToken = getAuthToken;
   API.clearAuthToken = clearAuthToken;
 
@@ -126,252 +121,10 @@
 
     return result;
   } catch (error) {
-    _apiError('API Request Error:', error);
+    console.error('API Request Error:', error);
     throw error;
   }
 }
-
-// ============================================================
-// DUAL-SOURCE READS: Domo datasets (in Domo) | API (outside Domo)
-// When loaded in Domo: pull from Domo datasets for fast load.
-// When loaded outside Domo: pull from backend API.
-// Both paths return identical data shape; writes always use API.
-// ============================================================
-
-  /**
-   * Normalize payload to match API response shape exactly.
-   * - State, HQState: full names → 2-letter abbr (e.g. LOUISIANA → LA)
-   * - Date fields: ensure YYYY-MM-DD string format
-   * Ensures Domo data behaves identically to API data.
-   */
-  function normalizePayloadForApiConsistency(payload) {
-    var FULL_NAME_TO_ABBR = {
-      ALABAMA: 'AL', ALASKA: 'AK', ARIZONA: 'AZ', ARKANSAS: 'AR', CALIFORNIA: 'CA',
-      COLORADO: 'CO', CONNECTICUT: 'CT', DELAWARE: 'DE', 'DISTRICT OF COLUMBIA': 'DC',
-      FLORIDA: 'FL', GEORGIA: 'GA', HAWAII: 'HI', IDAHO: 'ID', ILLINOIS: 'IL', INDIANA: 'IN',
-      IOWA: 'IA', KANSAS: 'KS', KENTUCKY: 'KY', LOUISIANA: 'LA', MAINE: 'ME', MARYLAND: 'MD',
-      MASSACHUSETTS: 'MA', MICHIGAN: 'MI', MINNESOTA: 'MN', MISSISSIPPI: 'MS', MISSOURI: 'MO',
-      MONTANA: 'MT', NEBRASKA: 'NE', NEVADA: 'NV', 'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ',
-      'NEW MEXICO': 'NM', 'NEW YORK': 'NY', 'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND',
-      OHIO: 'OH', OKLAHOMA: 'OK', OREGON: 'OR', PENNSYLVANIA: 'PA', 'RHODE ISLAND': 'RI',
-      'SOUTH CAROLINA': 'SC', 'SOUTH DAKOTA': 'SD', TENNESSEE: 'TN', TEXAS: 'TX', UTAH: 'UT',
-      VERMONT: 'VT', VIRGINIA: 'VA', WASHINGTON: 'WA', 'WEST VIRGINIA': 'WV', WISCONSIN: 'WI', WYOMING: 'WY',
-      'AMERICAN SAMOA': 'AS', GUAM: 'GU', 'NORTHERN MARIANA ISLANDS': 'MP', 'PUERTO RICO': 'PR',
-      'U.S. VIRGIN ISLANDS': 'VI', 'VIRGIN ISLANDS': 'VI'
-    };
-    var DATE_KEYS = ['StartDate', 'EstimatedConstructionStartDate', 'ConstructionLoanClosingDate',
-      'ExecutionDate', 'DueDiligenceDate', 'ClosingDate', 'ListedDate', 'LandClosingDate'];
-
-    function normalizeState(val) {
-      if (val == null || typeof val !== 'string') return null;
-      var s = val.trim();
-      if (!s) return null;
-      var upper = s.toUpperCase();
-      if (FULL_NAME_TO_ABBR[upper]) return FULL_NAME_TO_ABBR[upper];
-      if (s.length === 2) return upper;
-      return s;
-    }
-
-    function toDateString(val) {
-      if (val == null) return null;
-      if (typeof val === 'string') {
-        var m = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        return m ? m[0] : null;
-      }
-      if (val instanceof Date && !isNaN(val.getTime())) {
-        var y = val.getUTCFullYear();
-        var mo = String(val.getUTCMonth() + 1).padStart(2, '0');
-        var d = String(val.getUTCDate()).padStart(2, '0');
-        return y + '-' + mo + '-' + d;
-      }
-      return null;
-    }
-
-    function walk(obj) {
-      if (obj == null) return obj;
-      if (Array.isArray(obj)) return obj.map(walk);
-      if (typeof obj === 'object') {
-        var out = {};
-        for (var k in obj) if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
-        if (typeof out.State === 'string') out.State = normalizeState(out.State);
-        if (typeof out.HQState === 'string') out.HQState = normalizeState(out.HQState);
-        for (var i = 0; i < DATE_KEYS.length; i++) {
-          var key = DATE_KEYS[i];
-          if (key in out && out[key] != null) {
-            var ds = toDateString(out[key]);
-            if (ds != null) out[key] = ds;
-          }
-        }
-        return out;
-      }
-      return obj;
-    }
-    return walk(payload);
-  }
-
-  /**
-   * Detect if running inside Domo (has domo.get for dataset reads)
-   * Writes (create/update/delete) always go to backend API
-   * On localhost/127.0.0.1 we always use the API - domo.js may inject a stub domo object
-   * that would 404 when fetching /data/v1/... from the static server
-   */
-  function isDomoEnvironment() {
-    if (typeof window === 'undefined') return false;
-    const host = (window.location && window.location.hostname) || '';
-    if (host === 'localhost' || host === '127.0.0.1') return false;
-    return !!(window.domo && typeof window.domo.get === 'function');
-  }
-
-  /**
-   * Fetch dataset from Domo by alias (must be in manifest datasetsMapping)
-   * @param {string} alias - Dataset alias from manifest
-   * @returns {Promise<Array>} Array of row objects
-   */
-  async function domoGet(alias) {
-    if (!isDomoEnvironment()) return [];
-    try {
-      const data = await window.domo.get('/data/v1/' + alias + '?limit=5000');
-      return Array.isArray(data) ? data : (data && data.rows ? data.rows : []);
-    } catch (err) {
-      _apiWarn('[Domo] Failed to fetch dataset', alias, err);
-      return [];
-    }
-  }
-
-  /**
-   * Load Deal Pipelines from Domo datasets (DealPipeline + Project joined)
-   * Used when running in Domo for faster load - avoids cold-start on Render API
-   * @returns {Promise<object>} { success: true, data: [...] } - same shape as API
-   */
-  async function getAllDealPipelinesFromDomo() {
-    const [dpRows, projRows, pmRows, brRows] = await Promise.all([
-      domoGet('dealPipeline'),
-      domoGet('project'),
-      domoGet('preConManager'),
-      domoGet('brokerReferralContact')
-    ]);
-
-    const projectMap = {};
-    (projRows || []).forEach(function (p) {
-      projectMap[p.ProjectId] = p;
-    });
-    const pmMap = {};
-    (pmRows || []).forEach(function (pm) {
-      pmMap[pm.PreConManagerId] = pm;
-    });
-    const brMap = {};
-    (brRows || []).forEach(function (br) {
-      brMap[br.BrokerReferralContactId] = br;
-    });
-
-    var seen = {};
-    var uniqueDpRows = (dpRows || []).filter(function (dp) {
-      var id = dp.DealPipelineId;
-      if (id == null || seen[id]) return false;
-      seen[id] = true;
-      return true;
-    });
-    const joined = uniqueDpRows.map(function (dp) {
-      const p = projectMap[dp.ProjectId] || {};
-      const pm = pmMap[dp.PreConManagerId] || {};
-      const br = brMap[dp.BrokerReferralContactId] || {};
-      return {
-        DealPipelineId: dp.DealPipelineId,
-        ProjectId: dp.ProjectId,
-        ProjectName: p.ProjectName,
-        City: p.City,
-        State: p.State,
-        Region: p.Region,
-        Units: p.Units,
-        ProductType: p.ProductType,
-        Stage: p.Stage,
-        EstimatedConstructionStartDate: p.EstimatedConstructionStartDate,
-        RegionName: p.Region,
-        PreConManagerName: pm.FullName,
-        PreConManagerEmail: pm.Email,
-        PreConManagerPhone: pm.Phone,
-        Bank: dp.Bank,
-        StartDate: dp.StartDate,
-        UnitCount: dp.UnitCount,
-        PreConManagerId: dp.PreConManagerId,
-        ConstructionLoanClosingDate: dp.ConstructionLoanClosingDate,
-        Notes: dp.Notes,
-        Priority: dp.Priority,
-        Acreage: dp.Acreage,
-        LandPrice: dp.LandPrice,
-        SqFtPrice: dp.SqFtPrice,
-        ExecutionDate: dp.ExecutionDate,
-        DueDiligenceDate: dp.DueDiligenceDate,
-        ClosingDate: dp.ClosingDate,
-        PurchasingEntity: dp.PurchasingEntity,
-        Cash: dp.Cash,
-        OpportunityZone: dp.OpportunityZone,
-        ClosingNotes: dp.ClosingNotes,
-        County: dp.County,
-        ZipCode: dp.ZipCode,
-        MFAcreage: dp.MFAcreage,
-        Zoning: dp.Zoning,
-        Zoned: dp.Zoned,
-        ListingStatus: dp.ListingStatus,
-        PriceRaw: dp.PriceRaw,
-        BrokerReferralContactId: dp.BrokerReferralContactId,
-        BrokerReferralSource: dp.BrokerReferralSource,
-        RejectedReason: dp.RejectedReason,
-        Latitude: dp.Latitude,
-        Longitude: dp.Longitude,
-        CoordinateSource: dp.CoordinateSource,
-        AsanaTaskGid: dp.AsanaTaskGid,
-        AsanaProjectGid: dp.AsanaProjectGid,
-        CreatedAt: dp.CreatedAt,
-        UpdatedAt: dp.UpdatedAt,
-        BrokerReferralContactName: br.Name,
-        BrokerReferralContactEmail: br.Email,
-        BrokerReferralContactPhone: br.Phone
-      };
-    });
-
-    return { success: true, data: normalizePayloadForApiConsistency(joined) };
-  }
-
-  /**
-   * Load Loans from Domo (for bank name resolution in deal pipeline)
-   */
-  async function getAllLoansFromDomo() {
-    const rows = await domoGet('loan');
-    return { success: true, data: rows || [] };
-  }
-
-  /**
-   * Load Banks from Domo (for bank name resolution in deal pipeline)
-   */
-  async function getAllBanksFromDomo() {
-    const rows = await domoGet('bank');
-    return { success: true, data: normalizePayloadForApiConsistency(rows || []) };
-  }
-
-  /**
-   * Load Regions from Domo (for dropdowns)
-   */
-  async function getAllRegionsFromDomo() {
-    const rows = await domoGet('region');
-    return { success: true, data: rows || [] };
-  }
-
-  /**
-   * Load Product Types from Domo (for dropdowns)
-   */
-  async function getAllProductTypesFromDomo() {
-    const rows = await domoGet('productType');
-    return { success: true, data: rows || [] };
-  }
-
-  /**
-   * Load Pre-Con Managers from Domo (for dropdowns)
-   */
-  async function getAllPreConManagersFromDomo() {
-    const rows = await domoGet('preConManager');
-    return { success: true, data: rows || [] };
-  }
 
 // ============================================================
 // AUTHENTICATION - Capital Markets Users
@@ -475,13 +228,6 @@
 
 // BANKS
   async function getAllBanks() {
-  if (isDomoEnvironment()) {
-    try {
-      return await getAllBanksFromDomo();
-    } catch (e) {
-      _apiWarn('[Domo] Fallback to API for banks:', e);
-    }
-  }
   return apiRequest('/api/core/banks');
 }
 
@@ -558,13 +304,6 @@
  * @returns {Promise<object>} { success: true, data: [{ PreConManagerId, FullName, Email, Phone, CreatedAt, UpdatedAt }] }
  */
   async function getAllPreConManagers() {
-  if (isDomoEnvironment()) {
-    try {
-      return await getAllPreConManagersFromDomo();
-    } catch (e) {
-      _apiWarn('[Domo] Fallback to API for pre-con managers:', e);
-    }
-  }
   return apiRequest('/api/core/precon-managers');
 }
 
@@ -692,13 +431,6 @@
  * @returns {Promise<object>} { success: true, data: [{ ProductTypeId, ProductTypeName, DisplayOrder, ... }] }
  */
   async function getAllProductTypes() {
-  if (isDomoEnvironment()) {
-    try {
-      return await getAllProductTypesFromDomo();
-    } catch (e) {
-      _apiWarn('[Domo] Fallback to API for product types:', e);
-    }
-  }
   return apiRequest('/api/core/product-types');
 }
 
@@ -748,13 +480,6 @@
  * @returns {Promise<object>} { success: true, data: [{ RegionId, RegionName, DisplayOrder, ... }] }
  */
   async function getAllRegions() {
-  if (isDomoEnvironment()) {
-    try {
-      return await getAllRegionsFromDomo();
-    } catch (e) {
-      _apiWarn('[Domo] Fallback to API for regions:', e);
-    }
-  }
   return apiRequest('/api/core/regions');
 }
 
@@ -807,13 +532,6 @@
 
 // LOANS
   async function getAllLoans() {
-  if (isDomoEnvironment()) {
-    try {
-      return await getAllLoansFromDomo();
-    } catch (e) {
-      _apiWarn('[Domo] Fallback to API for loans:', e);
-    }
-  }
   return apiRequest('/api/banking/loans');
 }
 
@@ -1684,7 +1402,11 @@
   return apiRequest('/api/reviews/bulk', 'POST', { reviews });
 }
 
-// LEASING AGGREGATION (million-row scaling: pre-computed metrics from backend)
+// ============================================================
+// LEASING ANALYTICS
+// Dashboard data from leasing.DailyPropertyMetrics only. Use API_BASE_URL or __LV_AGGREGATION_API__.
+// ============================================================
+
 /**
  * Check if pre-aggregated leasing data is available from the API.
  * @returns {Promise<{ success: boolean, available: boolean, source: string }>}
@@ -1737,8 +1459,8 @@
   var LEASING_DASHBOARD_CACHE_TTL_MS = 120000;
 
 /**
- * Get pre-computed dashboard payload. Use part='dashboard' (default) for smaller, faster load on mobile; part='full' for raw + dashboard.
- * Caches for 2 min to reduce server load and speed up navigation. Server supports Cache-Control and ETag for 304.
+ * Get pre-computed dashboard payload. Default part='dashboard' (includes supplemental). Use part='full' for full payload.
+ * Caches for 2 min. Server supports Cache-Control and ETag for 304.
  * @param {object} opts - { asOf?: 'YYYY-MM-DD', timeoutMs?: number, skipCache?: boolean, part?: 'dashboard'|'raw'|'full' }
  * @returns {Promise<{ success: boolean, dashboard: object|null, raw?: object, _meta? }>}
  */
@@ -1750,7 +1472,7 @@
   }
   const params = new URLSearchParams();
   if (opts.asOf) params.set('asOf', opts.asOf);
-  if (part !== 'full') params.set('part', part);
+  params.set('part', part);
   const qs = params.toString();
   const url = API_BASE_URL.replace(/\/$/, '') + '/api/leasing/dashboard' + (qs ? '?' + qs : '');
   const timeoutMs = opts.timeoutMs || 120000;
@@ -1784,6 +1506,57 @@
     if (timeoutId) clearTimeout(timeoutId);
     throw e;
   }
+}
+
+/**
+ * Get supplemental data for drill modals (UnitMix, Pricing, Recents, PUD, leasingTS, etc.). Load on-demand when needed.
+ * @param {object} opts - { asOf?: 'YYYY-MM-DD' }
+ * @returns {Promise<{ success: boolean, supplemental: object, _meta?: { reportDate } }>}
+ */
+  async function getLeasingDashboardSupplemental(opts = {}) {
+  const params = new URLSearchParams();
+  if (opts.asOf) params.set('asOf', opts.asOf);
+  const qs = params.toString();
+  return apiRequest('/api/leasing/dashboard/supplemental' + (qs ? '?' + qs : ''));
+}
+
+/**
+ * Get PUD rows for a single property (on-demand for Portfolio Overview drill-down).
+ * @param {string} property - Property name
+ * @returns {Promise<{ success: boolean, rows: object[], count: number }>}
+ */
+  async function getLeasingPud(property) {
+  const p = encodeURIComponent(String(property || '').trim());
+  if (!p) return { success: false, rows: [], count: 0 };
+  return apiRequest('/api/leasing/pud?property=' + p);
+}
+
+/**
+ * Check if email is admin for Leasing Hub.
+ * @param {string} email - User email
+ * @returns {Promise<{ success: boolean, isAdmin: boolean }>}
+ */
+  async function getLeasingAdminCheck(email) {
+  const e = encodeURIComponent(String(email || '').trim());
+  if (!e) return { success: true, isAdmin: false };
+  return apiRequest('/api/leasing/admin-check?email=' + e);
+}
+
+/**
+ * Get Leasing Hub config (maintenance mode, etc.).
+ * @returns {Promise<{ success: boolean, maintenanceMode: boolean }>}
+ */
+  async function getLeasingConfig() {
+  return apiRequest('/api/leasing/config');
+}
+
+/**
+ * Set Leasing Hub config (maintenance mode). Requires auth token.
+ * @param {object} data - { maintenanceMode: boolean }
+ * @returns {Promise<{ success: boolean, maintenanceMode: boolean }>}
+ */
+  async function putLeasingConfig(data) {
+  return apiRequest('/api/leasing/config', 'PUT', data);
 }
 
 // LIQUIDITY REQUIREMENTS
@@ -2674,21 +2447,12 @@
  * - BrokerReferralContactId, PriceRaw, ListingStatus, Zoning, County, CoordinateSource
  * - BrokerReferralContactName, BrokerReferralContactEmail, BrokerReferralContactPhone (joined)
  * 
- * @param {object} [options] - Optional: { forceApi: true } to skip Domo and fetch from API (use after create/update/delete for instant fresh data)
  * @returns {Promise<object>} { success: true, data: [...] }
  * @example
  * const result = await getAllDealPipelines();
- * const fresh = await getAllDealPipelines({ forceApi: true }); // after save
+ * console.log('Deals:', result.data);
  */
-  async function getAllDealPipelines(options) {
-  var forceApi = options && options.forceApi === true;
-  if (!forceApi && isDomoEnvironment()) {
-    try {
-      return await getAllDealPipelinesFromDomo();
-    } catch (e) {
-      _apiWarn('[Domo] Fallback to API for deals:', e);
-    }
-  }
+  async function getAllDealPipelines() {
   return apiRequest('/api/pipeline/deal-pipeline');
 }
 
@@ -3033,7 +2797,7 @@
     }
     return null;
   } catch (error) {
-    _apiError(`Error looking up IMS ID ${imsId}:`, error);
+    console.error(`Error looking up IMS ID ${imsId}:`, error);
     return null;
   }
 }
@@ -3260,6 +3024,11 @@
   API.getLeasingAggregates = getLeasingAggregates;
   API.getLeasingDashboardSummary = getLeasingDashboardSummary;
   API.getLeasingDashboard = getLeasingDashboard;
+  API.getLeasingDashboardSupplemental = getLeasingDashboardSupplemental;
+  API.getLeasingPud = getLeasingPud;
+  API.getLeasingAdminCheck = getLeasingAdminCheck;
+  API.getLeasingConfig = getLeasingConfig;
+  API.putLeasingConfig = putLeasingConfig;
 
   // Banking - Liquidity Requirements
   API.getAllLiquidityRequirements = getAllLiquidityRequirements;
