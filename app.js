@@ -746,7 +746,13 @@ let currentFilters = {
     year: '', // Year filter (replaces exact date ranges)
     timelineStartDate: null, // For timeline date range filter (kept for timeline view)
     timelineEndDate: null,   // null means no end date (unlimited)
-    dateAddedRange: '1y'     // '1y' = deals added in last year (default), 'unlimited' = no filter
+    dateAddedRange: (function() {
+        try {
+            const saved = localStorage.getItem('dealPipeline_dateAddedDefault');
+            if (saved && ['3m','6m','1y','2y','unlimited'].includes(saved)) return saved;
+        } catch (e) { /* ignore */ }
+        return '1y'; // default: deals added in last year
+    })()
 };
 let currentSort = { by: 'date', order: 'asc' }; // Default to ascending (oldest first)
 let blockSort = { by: 'date', order: 'asc' }; // Sort within blocks (year/quarter groups)
@@ -1180,6 +1186,82 @@ function deduplicateDbDealsByDealPipelineId(dbDeals) {
     });
 }
 
+/**
+ * Compute Yield on Cost for each deal using cross-department data.
+ * Formula: YoC = (Annualized NOI / Total Project Cost) * 100
+ * Total Project Cost = CostPerUnit * Units (from core.Project), fallback: sum of loans + equity
+ * NOI proxy = CurrentMonthIncome * 12 (from leasing.MMRData matched by project name)
+ */
+async function computeYieldOnCostForDeals(deals, loansMap) {
+    let projectsMap = {};
+    let equityMap = {};
+    let leasingMap = {};
+
+    try {
+        const [projRes, eqRes] = await Promise.all([
+            API.getAllProjects(),
+            (typeof API.getAllEquityCommitments === 'function') ? API.getAllEquityCommitments() : Promise.resolve({ success: false })
+        ]);
+        if (projRes.success && projRes.data) {
+            projRes.data.forEach(p => { if (p.ProjectId) projectsMap[p.ProjectId] = p; });
+        }
+        if (eqRes.success && eqRes.data) {
+            eqRes.data.forEach(ec => {
+                if (ec.ProjectId) {
+                    if (!equityMap[ec.ProjectId]) equityMap[ec.ProjectId] = [];
+                    equityMap[ec.ProjectId].push(ec);
+                }
+            });
+        }
+    } catch (e) { console.warn('YoC: projects/equity fetch:', e); }
+
+    try {
+        const leasingRes = await API.getLeasingDashboard ? API.getLeasingDashboard() : Promise.resolve({ success: false });
+        if (leasingRes && leasingRes.success && leasingRes.data) {
+            const rows = Array.isArray(leasingRes.data) ? leasingRes.data : (leasingRes.data.properties || []);
+            rows.forEach(r => {
+                const prop = (r.Property || r.property || '').trim().toLowerCase();
+                if (prop) leasingMap[prop] = r;
+            });
+        }
+    } catch (e) { console.warn('YoC: leasing fetch:', e); }
+
+    for (const deal of deals) {
+        const pid = deal.ProjectId;
+        if (!pid) continue;
+
+        const proj = projectsMap[pid];
+        let totalCost = null;
+
+        if (proj && proj.CostPerUnit && proj.Units && proj.CostPerUnit > 0 && proj.Units > 0) {
+            totalCost = proj.CostPerUnit * proj.Units;
+        }
+
+        if (!totalCost) {
+            let loanTotal = 0;
+            const projectLoans = loansMap[pid] || [];
+            projectLoans.forEach(l => { if (l.LoanAmount) loanTotal += parseFloat(l.LoanAmount) || 0; });
+            let equityTotal = 0;
+            (equityMap[pid] || []).forEach(ec => { if (ec.Amount && !ec.IsPaidOff) equityTotal += parseFloat(ec.Amount) || 0; });
+            if (loanTotal + equityTotal > 0) totalCost = loanTotal + equityTotal;
+        }
+
+        let annualizedNOI = null;
+        const dealName = (deal.Name || '').trim().toLowerCase();
+        if (dealName && leasingMap[dealName]) {
+            const lr = leasingMap[dealName];
+            const monthlyIncome = parseFloat(lr.CurrentMonthIncome || lr.currentMonthIncome || lr.BudgetedIncome || lr.budgetedIncome || 0);
+            if (monthlyIncome > 0) annualizedNOI = monthlyIncome * 12;
+        }
+
+        if (totalCost && totalCost > 0 && annualizedNOI && annualizedNOI > 0) {
+            deal._yieldOnCost = (annualizedNOI / totalCost) * 100;
+        } else {
+            deal._yieldOnCost = null;
+        }
+    }
+}
+
 // Map database deal pipeline data to deal structure
 function mapDealPipelineDataToDeal(dbDeal, loansMap = {}, banksMap = {}) {
     // Map database fields to the deal structure expected by the UI
@@ -1324,7 +1406,9 @@ function mapDealPipelineDataToDeal(dbDeal, loansMap = {}, banksMap = {}) {
         PriceRaw: dbDeal.PriceRaw ?? dbDeal.Price_raw ?? null,
         ListingStatus: dbDeal.ListingStatus || null,
         Zoning: dbDeal.Zoning || null,
-        CountyParish: dbDeal.County || dbDeal.CountyParish || null
+        CountyParish: dbDeal.County || dbDeal.CountyParish || null,
+        CreatedAt: dbDeal.CreatedAt || dbDeal.createdAt || dbDeal.createdat || null,
+        UpdatedAt: dbDeal.UpdatedAt || dbDeal.updatedAt || dbDeal.updatedat || null
     };
 }
 
@@ -1540,7 +1624,8 @@ function mapAsanaDataToDeal(asanaItem) {
 // Apply filters to deals
 // excludeStart: if true, exclude all START deals (default: true, except for timeline view)
 // forOverview: if true, do not apply default stage exclusion (Prospective/Under Review) so overview shows full counts
-function applyFilters(deals, excludeStart = true, forOverview = false) {
+// forTimeline: if true, skip year filter (timeline filters by card date in renderTimeline instead)
+function applyFilters(deals, excludeStart = true, forOverview = false, forTimeline = false) {
     const now = new Date();
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
     
@@ -1600,8 +1685,8 @@ function applyFilters(deals, excludeStart = true, forOverview = false) {
         // Product filter
         if (currentFilters.product && product !== currentFilters.product) return false;
         
-        // Year filter
-        if (currentFilters.year) {
+        // Year filter (skipped for timeline - timeline filters by card date in renderTimeline)
+        if (!forTimeline && currentFilters.year) {
             const startDate = deal['Start Date'] || deal.startDate || deal.dueon || deal.due_on;
             if (startDate) {
                 try {
@@ -1620,15 +1705,19 @@ function applyFilters(deals, excludeStart = true, forOverview = false) {
             }
         }
         
-        // Date added filter (for List and Map views): default 1 year back, or unlimited
-        if (currentFilters.dateAddedRange === '1y') {
+        // Date added filter (for List and Map views): 3m, 6m, 1y, 2y, or unlimited
+        const dateAddedRange = currentFilters.dateAddedRange || '1y';
+        if (dateAddedRange !== 'unlimited') {
             const createdAt = deal.CreatedAt || deal.createdAt || deal.createdat;
             if (createdAt) {
                 try {
                     const added = new Date(createdAt);
-                    const oneYearAgo = new Date(now);
-                    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-                    if (!isNaN(added.getTime()) && added < oneYearAgo) return false;
+                    const cutoff = new Date(now);
+                    if (dateAddedRange === '3m') cutoff.setMonth(cutoff.getMonth() - 3);
+                    else if (dateAddedRange === '6m') cutoff.setMonth(cutoff.getMonth() - 6);
+                    else if (dateAddedRange === '1y') cutoff.setFullYear(cutoff.getFullYear() - 1);
+                    else if (dateAddedRange === '2y') cutoff.setFullYear(cutoff.getFullYear() - 2);
+                    if (!isNaN(added.getTime()) && added < cutoff) return false;
                 } catch (e) { /* include if parse fails */ }
             }
             // Deals without CreatedAt: include (don't exclude missing dates)
@@ -1737,6 +1826,19 @@ function sortDeal(a, b, sortConfig) {
             aVal = (a['Product Type'] || a.productType || '').toLowerCase();
             bVal = (b['Product Type'] || b.productType || '').toLowerCase();
             break;
+        case 'yoc':
+            aVal = (a._yieldOnCost != null && !isNaN(a._yieldOnCost)) ? a._yieldOnCost : -Infinity;
+            bVal = (b._yieldOnCost != null && !isNaN(b._yieldOnCost)) ? b._yieldOnCost : -Infinity;
+            break;
+        case 'updated':
+            const updA = a.UpdatedAt || a.CreatedAt || null;
+            const updB = b.UpdatedAt || b.CreatedAt || null;
+            if (!updA && !updB) return 0;
+            if (!updA) return 1;
+            if (!updB) return -1;
+            aVal = new Date(updA);
+            bVal = new Date(updB);
+            break;
         default:
             return 0;
     }
@@ -1793,6 +1895,31 @@ function renderDealRow(deal) {
                         '-';
                 })()}
             </td>
+            <td class="deal-cell yoc-cell" data-label="Yield on Cost">${(() => {
+                const yoc = deal._yieldOnCost;
+                if (yoc != null && !isNaN(yoc)) return `<span class="yoc-value" title="Yield on Cost: Annualized NOI / Total Project Cost">${yoc.toFixed(1)}%</span>`;
+                return '<span class="yoc-na" title="Insufficient data to calculate Yield on Cost">N/A</span>';
+            })()}</td>
+            <td class="deal-cell date-display" data-label="Date Added">${(() => {
+                const ca = deal.CreatedAt;
+                if (!ca) return '-';
+                const d = new Date(ca);
+                if (isNaN(d.getTime())) return '-';
+                return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
+            })()}</td>
+            <td class="deal-cell date-display" data-label="Last Updated">${(() => {
+                const ua = deal.UpdatedAt || deal.CreatedAt;
+                if (!ua) return '-';
+                const d = new Date(ua);
+                if (isNaN(d.getTime())) return '-';
+                const now = new Date();
+                const diffMs = now - d;
+                const diffDays = Math.floor(diffMs / 86400000);
+                if (diffDays === 0) return 'Today';
+                if (diffDays === 1) return 'Yesterday';
+                if (diffDays < 30) return `${diffDays}d ago`;
+                return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
+            })()}</td>
             <td class="deal-cell notes-cell clickable" data-label="Notes" title="${(deal.Notes || deal.notes || '').replace(/"/g, '&quot;')}" style="cursor: pointer;">
                 ${deal.Notes || deal.notes ? 
                     `<span class="notes-preview">${(deal.Notes || deal.notes).substring(0, 100)}${(deal.Notes || deal.notes).length > 100 ? '...' : ''}</span>` : 
@@ -1850,6 +1977,15 @@ function renderStageGroup(stage, deals) {
                                 </th>
                                 <th class="sortable-header col-location ${listSortConfig.by === 'location' ? 'sorted' : ''}" data-sort-by="location" data-sort-order="${listSortConfig.by === 'location' ? (listSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                     Location ${listSortConfig.by === 'location' ? (listSortConfig.order === 'asc' ? '↑' : '↓') : ''}
+                                </th>
+                                <th class="sortable-header col-yoc ${listSortConfig.by === 'yoc' ? 'sorted' : ''}" data-sort-by="yoc" data-sort-order="${listSortConfig.by === 'yoc' ? (listSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;" title="Yield on Cost = Annualized NOI / Total Project Cost">
+                                    YoC ${listSortConfig.by === 'yoc' ? (listSortConfig.order === 'asc' ? '↑' : '↓') : ''}
+                                </th>
+                                <th class="sortable-header col-date-added ${listSortConfig.by === 'dateAdded' ? 'sorted' : ''}" data-sort-by="dateAdded" data-sort-order="${listSortConfig.by === 'dateAdded' ? (listSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                    Added ${listSortConfig.by === 'dateAdded' ? (listSortConfig.order === 'asc' ? '↑' : '↓') : ''}
+                                </th>
+                                <th class="sortable-header col-updated ${listSortConfig.by === 'updated' ? 'sorted' : ''}" data-sort-by="updated" data-sort-order="${listSortConfig.by === 'updated' ? (listSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                    Updated ${listSortConfig.by === 'updated' ? (listSortConfig.order === 'asc' ? '↑' : '↓') : ''}
                                 </th>
                                 <th class="sortable-header col-notes ${listSortConfig.by === 'notes' ? 'sorted' : ''}" data-sort-by="notes" data-sort-order="${listSortConfig.by === 'notes' ? (listSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                     Notes ${listSortConfig.by === 'notes' ? (listSortConfig.order === 'asc' ? '↑' : '↓') : ''}
@@ -2427,7 +2563,7 @@ function setupDrillDownHandlers() {
     
     // (Stage checkbox change and dropdown toggle are registered once in initStageFilterDropdowns().)
 
-    // Quick filter dropdown change handlers (state, product, year)
+    // Quick filter dropdown change handlers (state, product, year, overview date-added)
     document.body.addEventListener('change', function(e) {
         if (e.target.classList.contains('quick-filter-dropdown')) {
             const filterType = e.target.id.replace('-filter-dropdown', '');
@@ -2439,6 +2575,9 @@ function setupDrillDownHandlers() {
                 currentFilters.product = filterValue;
             } else if (filterType === 'year') {
                 currentFilters.year = filterValue;
+            } else if (e.target.id === 'overview-date-added-filter') {
+                currentFilters.dateAddedRange = filterValue;
+                try { localStorage.setItem('dealPipeline_dateAddedDefault', filterValue); } catch (e2) { /* ignore */ }
             }
             
             updateFiltersUI();
@@ -2473,6 +2612,17 @@ function setupDrillDownHandlers() {
                 if (container && currentView === 'timeline') {
                     container.innerHTML = renderTimeline(allDeals);
                     setupDrillDownHandlers();
+                    // Scroll to selected year when filtering
+                    if (filterValue) {
+                        setTimeout(() => {
+                            const targetColumn = document.querySelector(`.timeline-column[data-year="${filterValue}"]`);
+                            const timelineColumns = document.querySelector('.timeline-board-columns');
+                            if (targetColumn && timelineColumns) {
+                                const columnLeft = targetColumn.offsetLeft;
+                                timelineColumns.scrollTo({ left: Math.max(0, columnLeft - 40), behavior: 'smooth' });
+                            }
+                        }, 100);
+                    }
                 } else {
                     switchView('timeline', allDeals);
                 }
@@ -2775,6 +2925,16 @@ function renderOverview(deals) {
                         ${years.map(year => `
                             <option value="${year}" ${currentFilters.year === year ? 'selected' : ''}>${year}</option>
                         `).join('')}
+                    </select>
+                </div>
+                <div class="quick-filter-group">
+                    <label for="overview-date-added-filter">Date Added:</label>
+                    <select id="overview-date-added-filter" class="quick-filter-dropdown" aria-label="Filter by date added">
+                        <option value="3m" ${currentFilters.dateAddedRange === '3m' ? 'selected' : ''}>Last 3 months</option>
+                        <option value="6m" ${currentFilters.dateAddedRange === '6m' ? 'selected' : ''}>Last 6 months</option>
+                        <option value="1y" ${(currentFilters.dateAddedRange || '1y') === '1y' ? 'selected' : ''}>Last 1 year</option>
+                        <option value="2y" ${currentFilters.dateAddedRange === '2y' ? 'selected' : ''}>Last 2 years</option>
+                        <option value="unlimited" ${currentFilters.dateAddedRange === 'unlimited' ? 'selected' : ''}>Unlimited (no filter)</option>
                     </select>
                 </div>
             </div>
@@ -4614,7 +4774,16 @@ async function renderByBank(deals) {
                                     <th class="sortable-header ${bankSortConfig.by === 'location' ? 'sorted' : ''}" data-sort-by="location" data-sort-order="${bankSortConfig.by === 'location' ? (bankSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                         Location ${bankSortConfig.by === 'location' ? (bankSortConfig.order === 'asc' ? '↑' : '↓') : ''}
                                     </th>
-                                    <th class="sortable-header ${bankSortConfig.by === 'notes' ? 'sorted' : ''}" data-sort-by="notes" data-sort-order="${bankSortConfig.by === 'notes' ? (bankSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                    <th class="sortable-header col-yoc ${bankSortConfig.by === 'yoc' ? 'sorted' : ''}" data-sort-by="yoc" data-sort-order="${bankSortConfig.by === 'yoc' ? (bankSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;" title="Yield on Cost">
+                                        YoC ${bankSortConfig.by === 'yoc' ? (bankSortConfig.order === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th class="sortable-header col-date-added ${bankSortConfig.by === 'dateAdded' ? 'sorted' : ''}" data-sort-by="dateAdded" data-sort-order="${bankSortConfig.by === 'dateAdded' ? (bankSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                        Added ${bankSortConfig.by === 'dateAdded' ? (bankSortConfig.order === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th class="sortable-header col-updated ${bankSortConfig.by === 'updated' ? 'sorted' : ''}" data-sort-by="updated" data-sort-order="${bankSortConfig.by === 'updated' ? (bankSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                        Updated ${bankSortConfig.by === 'updated' ? (bankSortConfig.order === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th class="sortable-header col-notes ${bankSortConfig.by === 'notes' ? 'sorted' : ''}" data-sort-by="notes" data-sort-order="${bankSortConfig.by === 'notes' ? (bankSortConfig.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                         Notes ${bankSortConfig.by === 'notes' ? (bankSortConfig.order === 'asc' ? '↑' : '↓') : ''}
                                     </th>
                                     <th>Actions</th>
@@ -4622,7 +4791,6 @@ async function renderByBank(deals) {
                             </thead>
                             <tbody>
                                 ${bankDeals.map(deal => {
-                                    // Create a version without Bank column for this view
                                     const stage = normalizeStage(deal.Stage || deal.stage);
                                     const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
                                     return `
@@ -4647,12 +4815,31 @@ async function renderByBank(deals) {
                                                         '-';
                                                 })()}
                                             </td>
-                                            <td class="deal-cell" data-label="Pre-Con">
-                                                ${deal['Pre-Con'] || deal.preCon || deal['Pre-Con M'] ? 
-                                                    `<span class="precon-badge">${deal['Pre-Con'] || deal.preCon || deal['Pre-Con M']}</span>` : 
-                                                    '-'
-                                                }
-                                            </td>
+                                            <td class="deal-cell yoc-cell" data-label="Yield on Cost">${(() => {
+                                                const yoc = deal._yieldOnCost;
+                                                if (yoc != null && !isNaN(yoc)) return `<span class="yoc-value">${yoc.toFixed(1)}%</span>`;
+                                                return '<span class="yoc-na">N/A</span>';
+                                            })()}</td>
+                                            <td class="deal-cell date-display" data-label="Date Added">${(() => {
+                                                const ca = deal.CreatedAt;
+                                                if (!ca) return '-';
+                                                const d = new Date(ca);
+                                                if (isNaN(d.getTime())) return '-';
+                                                return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
+                                            })()}</td>
+                                            <td class="deal-cell date-display" data-label="Last Updated">${(() => {
+                                                const ua = deal.UpdatedAt || deal.CreatedAt;
+                                                if (!ua) return '-';
+                                                const d = new Date(ua);
+                                                if (isNaN(d.getTime())) return '-';
+                                                const now = new Date();
+                                                const diffMs = now - d;
+                                                const diffDays = Math.floor(diffMs / 86400000);
+                                                if (diffDays === 0) return 'Today';
+                                                if (diffDays === 1) return 'Yesterday';
+                                                if (diffDays < 30) return `${diffDays}d ago`;
+                                                return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
+                                            })()}</td>
                                             <td class="deal-cell notes-cell" data-label="Notes" title="${(deal.Notes || deal.notes || '').replace(/"/g, '&quot;')}">
                                                 ${deal.Notes || deal.notes ? 
                                                     `<span class="notes-preview">${(deal.Notes || deal.notes).substring(0, 100)}${(deal.Notes || deal.notes).length > 100 ? '...' : ''}</span>` : 
@@ -4752,7 +4939,16 @@ function renderByProductType(deals) {
                                     <th class="sortable-header ${productTypeSort.by === 'location' ? 'sorted' : ''}" data-sort-by="location" data-sort-order="${productTypeSort.by === 'location' ? (productTypeSort.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                         Location ${productTypeSort.by === 'location' ? (productTypeSort.order === 'asc' ? '↑' : '↓') : ''}
                                     </th>
-                                    <th class="sortable-header ${productTypeSort.by === 'notes' ? 'sorted' : ''}" data-sort-by="notes" data-sort-order="${productTypeSort.by === 'notes' ? (productTypeSort.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                    <th class="sortable-header col-yoc ${productTypeSort.by === 'yoc' ? 'sorted' : ''}" data-sort-by="yoc" data-sort-order="${productTypeSort.by === 'yoc' ? (productTypeSort.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;" title="Yield on Cost">
+                                        YoC ${productTypeSort.by === 'yoc' ? (productTypeSort.order === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th class="sortable-header col-date-added ${productTypeSort.by === 'dateAdded' ? 'sorted' : ''}" data-sort-by="dateAdded" data-sort-order="${productTypeSort.by === 'dateAdded' ? (productTypeSort.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                        Added ${productTypeSort.by === 'dateAdded' ? (productTypeSort.order === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th class="sortable-header col-updated ${productTypeSort.by === 'updated' ? 'sorted' : ''}" data-sort-by="updated" data-sort-order="${productTypeSort.by === 'updated' ? (productTypeSort.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
+                                        Updated ${productTypeSort.by === 'updated' ? (productTypeSort.order === 'asc' ? '↑' : '↓') : ''}
+                                    </th>
+                                    <th class="sortable-header col-notes ${productTypeSort.by === 'notes' ? 'sorted' : ''}" data-sort-by="notes" data-sort-order="${productTypeSort.by === 'notes' ? (productTypeSort.order === 'asc' ? 'desc' : 'asc') : 'asc'}" style="cursor: pointer;">
                                         Notes ${productTypeSort.by === 'notes' ? (productTypeSort.order === 'asc' ? '↑' : '↓') : ''}
                                     </th>
                                     <th>Actions</th>
@@ -4785,12 +4981,31 @@ function renderByProductType(deals) {
                                                         '-';
                                                 })()}
                                             </td>
-                                            <td class="deal-cell" data-label="Pre-Con">
-                                                ${deal['Pre-Con'] || deal.preCon || deal['Pre-Con M'] ? 
-                                                    `<span class="precon-badge">${deal['Pre-Con'] || deal.preCon || deal['Pre-Con M']}</span>` : 
-                                                    '-'
-                                                }
-                                            </td>
+                                            <td class="deal-cell yoc-cell" data-label="Yield on Cost">${(() => {
+                                                const yoc = deal._yieldOnCost;
+                                                if (yoc != null && !isNaN(yoc)) return `<span class="yoc-value">${yoc.toFixed(1)}%</span>`;
+                                                return '<span class="yoc-na">N/A</span>';
+                                            })()}</td>
+                                            <td class="deal-cell date-display" data-label="Date Added">${(() => {
+                                                const ca = deal.CreatedAt;
+                                                if (!ca) return '-';
+                                                const d = new Date(ca);
+                                                if (isNaN(d.getTime())) return '-';
+                                                return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
+                                            })()}</td>
+                                            <td class="deal-cell date-display" data-label="Last Updated">${(() => {
+                                                const ua = deal.UpdatedAt || deal.CreatedAt;
+                                                if (!ua) return '-';
+                                                const d = new Date(ua);
+                                                if (isNaN(d.getTime())) return '-';
+                                                const now = new Date();
+                                                const diffMs = now - d;
+                                                const diffDays = Math.floor(diffMs / 86400000);
+                                                if (diffDays === 0) return 'Today';
+                                                if (diffDays === 1) return 'Yesterday';
+                                                if (diffDays < 30) return `${diffDays}d ago`;
+                                                return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
+                                            })()}</td>
                                             <td class="deal-cell notes-cell" data-label="Notes" title="${(deal.Notes || deal.notes || '').replace(/"/g, '&quot;')}">
                                                 ${deal.Notes || deal.notes ? 
                                                     `<span class="notes-preview">${(deal.Notes || deal.notes).substring(0, 100)}${(deal.Notes || deal.notes).length > 100 ? '...' : ''}</span>` : 
@@ -5440,7 +5655,7 @@ function showSendReminderModal(contactOrContext, emailPrefill) {
 // Render Timeline (board-style with year/quarter columns)
 // Timeline is the only view that includes START deals (they're placeholders for timeline)
 function renderTimeline(deals) {
-    const filtered = applyFilters(deals, false); // Don't exclude START in timeline
+    const filtered = applyFilters(deals, false, false, true); // Don't exclude START; skip year filter (we filter by card date below)
     const summary = calculateSummary(filtered, false); // Include START in timeline calculations
     
     const now = new Date();
@@ -5497,7 +5712,18 @@ function renderTimeline(deals) {
             console.warn('Error processing date in timeline:', item.date);
         }
     });
-    const onePerDeal = Object.values(dealToEarliest);
+    let onePerDeal = Object.values(dealToEarliest);
+    
+    // Filter by year when a specific year is selected (filter by card date, not deal Start Date)
+    if (currentFilters.year) {
+        const targetYear = currentFilters.year;
+        onePerDeal = onePerDeal.filter(item => {
+            try {
+                const date = new Date(item.date);
+                return !isNaN(date.getTime()) && date.getFullYear().toString() === targetYear;
+            } catch (e) { return false; }
+        });
+    }
     
     // Group by year/quarter
     const groupedByPeriod = {};
@@ -5525,8 +5751,6 @@ function renderTimeline(deals) {
         if (yA !== yB) return parseInt(yA) - parseInt(yB);
         return parseInt(qA) - parseInt(qB);
     });
-    
-    // Don't filter by year - show all periods
     
     // Check if we should highlight a specific deal
     const highlightDeal = window.highlightDealInTimeline;
@@ -5789,7 +6013,10 @@ function getActiveFilters() {
     if (currentFilters.state) active.push({ label: 'State', value: currentFilters.state });
     if (currentFilters.year) active.push({ label: 'Year', value: currentFilters.year });
     if (currentFilters.search) active.push({ label: 'Search', value: currentFilters.search });
-    if (currentFilters.dateAddedRange === '1y') active.push({ label: 'Date Added', value: 'Last 1 year' });
+    const dateAddedLabels = { '3m': 'Last 3 months', '6m': 'Last 6 months', '1y': 'Last 1 year', '2y': 'Last 2 years' };
+    if (currentFilters.dateAddedRange && currentFilters.dateAddedRange !== 'unlimited') {
+        active.push({ label: 'Date Added', value: dateAddedLabels[currentFilters.dateAddedRange] || currentFilters.dateAddedRange });
+    }
     return active;
 }
 
@@ -5826,8 +6053,9 @@ function clearFilters() {
         year: '', // Clear year filter
         timelineStartDate: null,
         timelineEndDate: null,
-        dateAddedRange: '1y'
+        dateAddedRange: 'unlimited'  // Truly clear - remove Date Added filter when user clicks Clear
     };
+    try { localStorage.setItem('dealPipeline_dateAddedDefault', 'unlimited'); } catch (e) { /* ignore */ }
     // Clear search input
     const searchInput = document.getElementById('search-filter');
     if (searchInput) searchInput.value = '';
@@ -7311,7 +7539,7 @@ async function switchView(view, deals) {
             })();
             break;
         case 'timeline':
-            // Don't filter by year - show all years, but auto-scroll to current year
+            // Year filter applied in renderTimeline (by card date); auto-scroll to current or selected year
             container.innerHTML = renderTimeline(deals);
             setupDrillDownHandlers();
             
@@ -8174,6 +8402,9 @@ async function init() {
                 return stage !== 'HoldCo' && stage.toLowerCase() !== 'holdco';
             });
         
+        // Compute Yield on Cost from cross-department data (non-blocking)
+        computeYieldOnCostForDeals(allDeals, loansMap).catch(e => console.warn('YoC computation error:', e));
+
         // Update global reference
         window.allDeals = allDeals;
         
@@ -8221,6 +8452,7 @@ async function init() {
                         switchView(currentView, allDeals);
                     } else if (e.target.id === 'date-added-filter') {
                         currentFilters.dateAddedRange = e.target.value;
+                        try { localStorage.setItem('dealPipeline_dateAddedDefault', e.target.value); } catch (e2) { /* ignore */ }
                         switchView(currentView, allDeals);
                     }
                 });
@@ -8325,7 +8557,12 @@ async function refreshDealsFromApi() {
         mapped.forEach(d => allDeals.push(d));
         window.allDeals = allDeals;
         buildBankNameMap(allDeals);
-        switchView(currentView, allDeals);
+        computeYieldOnCostForDeals(allDeals, loansMap).then(() => {
+            switchView(currentView, allDeals);
+        }).catch(e => {
+            console.warn('YoC refresh error:', e);
+            switchView(currentView, allDeals);
+        });
         const pipelineView = document.getElementById('deal-pipeline-view');
         if (pipelineView && pipelineView.style.display !== 'none') {
             await renderDealPipelineTable({ forceApi: true });
@@ -8766,8 +9003,7 @@ window.openDealEditModal = async function(deal) {
     const editLng = document.getElementById('edit-longitude');
     if (editLat) editLat.value = original.Latitude != null ? String(original.Latitude) : (deal.Latitude != null ? String(deal.Latitude) : '');
     if (editLng) editLng.value = original.Longitude != null ? String(original.Longitude) : (deal.Longitude != null ? String(deal.Longitude) : '');
-    document.getElementById('edit-units').value = deal['Unit Count'] || original.Units || '';
-    document.getElementById('edit-unit-count').value = original.UnitCount || deal['Unit Count'] || '';
+    document.getElementById('edit-unit-count').value = original.UnitCount || deal['Unit Count'] || original.Units || '';
     document.getElementById('edit-product-type').value = deal['Product Type'] || original.ProductType || '';
     const bankField = document.getElementById('edit-bank');
     if (bankField) {
@@ -8948,7 +9184,6 @@ async function handleDealSave(e) {
         Region: form['edit-region'].value.trim() || null,
         Latitude: form['edit-latitude'] && form['edit-latitude'].value ? parseFloat(form['edit-latitude'].value) : null,
         Longitude: form['edit-longitude'] && form['edit-longitude'].value ? parseFloat(form['edit-longitude'].value) : null,
-        Units: form['edit-units'].value ? parseInt(form['edit-units'].value) : null,
         UnitCount: form['edit-unit-count'].value ? parseInt(form['edit-unit-count'].value) : null,
         ProductType: form['edit-product-type'].value || null,
         // Bank field is read-only, don't include it in updates

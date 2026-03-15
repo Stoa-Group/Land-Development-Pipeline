@@ -95,6 +95,11 @@
     font-weight: 600;
 }
 
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
 /* Reset and Base Styles – scaling works in both standalone and iframe (e.g. Domo) */
 html {
     box-sizing: border-box;
@@ -321,6 +326,11 @@ body.deal-pipeline-open {
     background-color: transparent;
 }
 
+.nav-tab:focus-visible {
+    outline: 2px solid var(--primary-green);
+    outline-offset: -2px;
+}
+
 /* List View Container – flex child with min-height: 0 so it scrolls instead of overflowing */
 .list-view-container {
     flex: 1 1 0;
@@ -360,10 +370,23 @@ body.deal-pipeline-open {
 }
 
 
+/* YoC column styles */
+.yoc-value {
+    font-weight: 600;
+    color: var(--primary-green);
+}
+.yoc-na {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+.yoc-cell {
+    text-align: center;
+}
+
 /* List Table - Asana Style */
 .deal-list-table {
     width: 100%;
-    min-width: 800px;
+    min-width: 1000px;
     border-collapse: separate;
     border-spacing: 0;
     background-color: var(--white);
@@ -396,48 +419,63 @@ body.deal-pipeline-open {
 }
 
 .deal-list-table th.col-name {
-    min-width: 200px;
-    width: 25%;
+    min-width: 160px;
+    width: 18%;
 }
 
 .deal-list-table th.col-stage {
-    min-width: 120px;
-    width: 12%;
+    min-width: 100px;
+    width: 9%;
 }
 
 .deal-list-table th.col-units {
-    min-width: 100px;
-    width: 10%;
+    min-width: 70px;
+    width: 6%;
 }
 
 .deal-list-table th.col-date {
-    min-width: 120px;
-    width: 12%;
+    min-width: 90px;
+    width: 8%;
 }
 
 .deal-list-table th.col-bank {
-    min-width: 120px;
-    width: 12%;
+    min-width: 100px;
+    width: 8%;
 }
 
 .deal-list-table th.col-product {
-    min-width: 120px;
-    width: 12%;
+    min-width: 100px;
+    width: 8%;
 }
 
 .deal-list-table th.col-location {
-    min-width: 150px;
-    width: 15%;
+    min-width: 110px;
+    width: 9%;
 }
 
 .deal-list-table th.col-precon {
     min-width: 80px;
-    width: 8%;
+    width: 7%;
+}
+
+.deal-list-table th.col-yoc {
+    min-width: 60px;
+    width: 5%;
+}
+
+.deal-list-table th.col-date-added {
+    min-width: 80px;
+    width: 7%;
+}
+
+.deal-list-table th.col-updated {
+    min-width: 80px;
+    width: 7%;
 }
 
 .deal-list-table th.col-notes {
-    min-width: 200px;
-    width: 20%;
+    min-width: 150px;
+    width: 14%;
 }
 
 .notes-cell {
@@ -898,11 +936,22 @@ body.deal-pipeline-open {
     
     .deal-list-table {
         font-size: 13px;
+        min-width: 900px;
     }
     
     .deal-list-table th,
     .deal-list-table td {
         padding: 10px 8px;
+    }
+
+    .deal-list-table .col-yoc,
+    .deal-list-table .yoc-cell {
+        display: none;
+    }
+
+    .deal-list-table .col-notes,
+    .deal-list-table .notes-cell {
+        display: none;
     }
     
     .filter-controls {
@@ -4843,6 +4892,21 @@ body.map-fullscreen-active {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    animation: modal-backdrop-in 0.2s ease;
+}
+
+@keyframes modal-backdrop-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.modal-overlay .modal-content {
+    animation: modal-content-in 0.25s ease;
+}
+
+@keyframes modal-content-in {
+    from { opacity: 0; transform: translateY(16px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Edit deal modal must sit above deal detail (view) modal for edit-in-place from deal view */
@@ -6138,4 +6202,98 @@ select.deal-pipeline-field.external-source-field[disabled] {
   .pill {
     transition: none !important;
   }
+}
+
+/* Global focus-visible for accessibility */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+    outline: 2px solid var(--primary-green);
+    outline-offset: 2px;
+}
+
+/* Improved stage-group toggle animation */
+.stage-group-content {
+    transition: max-height 0.25s ease;
+    overflow: hidden;
+}
+
+/* iPhone viewport fixes */
+@media (max-width: 414px) {
+    .project-title-row {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .header-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .deal-list-table td.actions-cell {
+        justify-content: flex-end;
+    }
+
+    .deal-files-view-btn,
+    .deal-edit-btn-small {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 8px 12px;
+    }
+
+    .modal-content {
+        max-height: 85vh;
+        border-radius: 12px 12px 0 0;
+    }
+
+    .modal-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+
+    .form-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .form-group {
+        width: 100%;
+    }
+
+    .btn-primary,
+    .btn-secondary,
+    .btn-danger {
+        min-height: 44px;
+        font-size: 15px;
+    }
+}
+
+/* iPad landscape (1024-1366) column adjustments */
+@media (min-width: 1025px) and (max-width: 1366px) {
+    .deal-list-table {
+        min-width: 950px;
+    }
+
+    .deal-list-table .col-notes,
+    .deal-list-table .notes-cell {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
+/* Prevent zoom on input focus in iOS */
+@media screen and (max-width: 768px) {
+    input[type="text"],
+    input[type="number"],
+    input[type="email"],
+    input[type="tel"],
+    input[type="date"],
+    input[type="password"],
+    select,
+    textarea {
+        font-size: 16px;
+    }
 }

@@ -82,8 +82,11 @@
           <div class="filter-group">
             <label for="date-added-filter">Date Added:</label>
             <select id="date-added-filter" class="filter-select" aria-label="Filter by date added">
+              <option value="3m">Last 3 months</option>
+              <option value="6m">Last 6 months</option>
               <option value="1y">Last 1 year</option>
-              <option value="unlimited">Unlimited</option>
+              <option value="2y">Last 2 years</option>
+              <option value="unlimited">Unlimited (no filter)</option>
             </select>
           </div>
           <div class="filter-group">
@@ -103,6 +106,8 @@
               <option value="units">Unit Count</option>
               <option value="date" selected>Start Date</option>
               <option value="dateAdded">Date Added</option>
+              <option value="updated">Last Updated</option>
+              <option value="yoc">Yield on Cost</option>
               <option value="location">Location</option>
             </select>
             <select id="sort-order" class="sort-select" aria-label="Sort order">
@@ -293,10 +298,6 @@
               </div>
             </div>
             <div class="form-row">
-              <div class="form-group">
-                <label for="edit-units">Units:</label>
-                <input type="number" id="edit-units" name="Units">
-              </div>
               <div class="form-group">
                 <label for="edit-unit-count">Unit Count:</label>
                 <input type="number" id="edit-unit-count" name="UnitCount">
