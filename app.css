@@ -1072,9 +1072,26 @@ body.deal-pipeline-open {
         flex-direction: column;
         gap: 10px;
         padding: 12px;
-        max-height: 300px;
+        max-height: 50vh;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
+        animation: slide-down 0.2s ease;
+    }
+    
+    /* On mobile/tablet, hide filters by default -- JS shows them when toggle is expanded */
+    .mobile-filter-toggle[aria-expanded="false"] ~ .filter-controls,
+    .mobile-filter-toggle[aria-expanded="false"] ~ .sort-controls {
+        display: none !important;
+    }
+    
+    .mobile-filter-toggle[aria-expanded="true"] ~ .filter-controls,
+    .mobile-filter-toggle[aria-expanded="true"] ~ .sort-controls {
+        display: flex !important;
+    }
+    
+    @keyframes slide-down {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: translateY(0); }
     }
     
     .filter-group {
@@ -6303,14 +6320,184 @@ a:focus-visible {
     outline-offset: 2px;
 }
 
-/* Improved stage-group toggle animation */
+/* Stage-group collapse/expand */
 .stage-group-content {
-    transition: max-height 0.25s ease;
-    overflow: hidden;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
 }
 
-/* iPhone viewport fixes */
-@media (max-width: 414px) {
+.stage-group.collapsed .stage-group-content {
+    max-height: 0 !important;
+    overflow: hidden;
+    opacity: 0;
+}
+
+.stage-group-toggle {
+    cursor: pointer;
+    transition: transform 0.2s ease;
+    user-select: none;
+    font-weight: 700;
+    font-size: 15px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+}
+
+.stage-group-toggle:hover {
+    background: rgba(126, 138, 107, 0.12);
+}
+
+/* Mobile filter toggle button -- hidden by default, shown on phone/tablet via media queries */
+.mobile-filter-toggle {
+    display: none !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: calc(100% - 24px);
+    margin: 8px 12px;
+    padding: 12px 16px;
+    background: var(--white);
+    border: 1px solid rgba(126, 138, 107, 0.2);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-filter-toggle:active {
+    background: rgba(126, 138, 107, 0.08);
+}
+
+.mobile-filter-toggle[aria-expanded="true"] {
+    background: rgba(126, 138, 107, 0.06);
+    border-color: var(--primary-green);
+    box-shadow: 0 2px 8px rgba(126, 138, 107, 0.1);
+}
+
+.mobile-filter-toggle-icon {
+    font-size: 16px;
+}
+
+.mobile-filter-active-count {
+    display: inline-block;
+    min-width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 10px;
+    background: var(--primary-green);
+    color: #fff;
+}
+
+.mobile-filter-active-count:empty {
+    display: none;
+}
+
+/* ===== DEVICE-SPECIFIC LAYOUTS ===== */
+
+/* --- PHONE (up to 480px): Card-based, single-column, large touch targets --- */
+@media (max-width: 480px) {
+    .mobile-filter-toggle {
+        display: flex !important;
+    }
+    
+    /* Deal detail: full screen on phone */
+    .deal-detail-modal.modal-overlay {
+        padding: 0;
+        align-items: stretch;
+    }
+    
+    .deal-detail-content.modal-content {
+        max-width: 100%;
+        max-height: 100dvh;
+        height: 100dvh;
+        border-radius: 0;
+        margin: 0;
+    }
+    
+    .deal-detail-header {
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px 16px;
+    }
+    
+    .deal-detail-nav {
+        order: -1;
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+    }
+    
+    .deal-detail-nav-btn {
+        min-height: 36px;
+        font-size: 13px;
+    }
+    
+    .deal-detail-title-row {
+        flex-direction: column;
+        gap: 6px;
+    }
+    
+    .deal-detail-title-row h2 {
+        font-size: 18px;
+    }
+    
+    .deal-detail-actions {
+        display: flex;
+        width: 100%;
+        gap: 8px;
+    }
+    
+    .deal-detail-actions button {
+        flex: 1;
+        min-height: 44px;
+    }
+    
+    /* Overview: single-column stats on phone */
+    .overview-stats {
+        grid-template-columns: 1fr !important;
+        gap: 8px;
+    }
+    
+    .overview-sections {
+        grid-template-columns: 1fr !important;
+    }
+    
+    /* Contacts: limit map height */
+    .contacts-map-panel {
+        max-height: 280px;
+    }
+    
+    .contacts-card {
+        min-width: 100% !important;
+    }
+    
+    /* Timeline: vertical list on phone */
+    .timeline-board-columns {
+        flex-direction: column !important;
+        overflow-x: visible !important;
+        gap: 12px;
+    }
+    
+    .timeline-column {
+        min-width: 100% !important;
+        max-height: none !important;
+    }
+    
+    /* Stage groups default collapsed on phone (JS toggles) */
+    .stage-group-header {
+        padding: 12px 14px;
+        font-size: 12px;
+    }
+    
+    /* Project title row */
     .project-title-row {
         flex-wrap: wrap;
         gap: 6px;
@@ -6333,7 +6520,7 @@ a:focus-visible {
     }
 
     .modal-content {
-        max-height: 85vh;
+        max-height: 100dvh;
         border-radius: 12px 12px 0 0;
     }
 
@@ -6356,6 +6543,152 @@ a:focus-visible {
     .btn-danger {
         min-height: 44px;
         font-size: 15px;
+    }
+    
+    /* Deal edit modal: full screen on phone */
+    .deal-edit-modal .modal-content,
+    #deal-edit-modal .modal-content {
+        max-height: 100dvh;
+        height: 100dvh;
+        border-radius: 0;
+    }
+    
+    /* Map controls compact on phone */
+    .map-controls {
+        gap: 4px;
+    }
+    
+    .map-controls button {
+        font-size: 11px;
+        padding: 6px 10px;
+    }
+    
+    /* Notes modal full width on phone */
+    .notes-modal-content {
+        max-width: 100% !important;
+        border-radius: 12px 12px 0 0;
+    }
+}
+
+/* --- TABLET (481px–1024px): Optimized table, split layouts, collapsible controls --- */
+@media (min-width: 481px) and (max-width: 1024px) {
+    .mobile-filter-toggle {
+        display: flex !important;
+        margin: 8px 16px;
+    }
+    
+    .mobile-filter-toggle[aria-expanded="false"] ~ .filter-controls,
+    .mobile-filter-toggle[aria-expanded="false"] ~ .sort-controls {
+        display: none !important;
+    }
+    
+    .mobile-filter-toggle[aria-expanded="true"] ~ .filter-controls,
+    .mobile-filter-toggle[aria-expanded="true"] ~ .sort-controls {
+        display: flex !important;
+    }
+    
+    /* Overview: 2-column stats */
+    .overview-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .overview-sections {
+        grid-template-columns: 1fr;
+    }
+    
+    /* Deal detail as large sheet, not full screen */
+    .deal-detail-content.modal-content {
+        max-width: 90vw;
+        max-height: 92vh;
+        border-radius: 14px;
+    }
+    
+    .deal-detail-modal.modal-overlay {
+        padding: 16px;
+        align-items: center;
+    }
+    
+    /* Timeline horizontal scroll with snap */
+    .timeline-board-columns {
+        scroll-snap-type: x mandatory;
+    }
+    
+    .timeline-column {
+        scroll-snap-align: start;
+        min-width: 260px;
+    }
+    
+    /* Contacts: optimized map height */
+    .contacts-map-panel {
+        max-height: 360px;
+    }
+    
+    /* Map view: taller map on tablet */
+    .map-container {
+        min-height: 400px;
+    }
+}
+
+/* --- TABLET LANDSCAPE (768px–1024px) --- */
+@media (min-width: 768px) and (max-width: 1024px) {
+    /* Overview: 3-column stats in landscape */
+    .overview-stats {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .overview-sections {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* --- DESKTOP (1025px+): Full experience, hover interactions --- */
+@media (min-width: 1025px) {
+    .mobile-filter-toggle {
+        display: none !important;
+    }
+    
+    /* Deal row hover effect */
+    .deal-list-table tbody tr {
+        transition: background-color 0.12s ease, box-shadow 0.12s ease;
+    }
+    
+    .deal-list-table tbody tr:hover {
+        background-color: rgba(126, 138, 107, 0.04);
+        box-shadow: inset 0 0 0 1px rgba(126, 138, 107, 0.08);
+    }
+    
+    /* Stage group header hover */
+    .stage-group-header:hover {
+        filter: brightness(0.97);
+    }
+    
+    /* Deal detail hover actions */
+    .deal-detail-nav-btn:hover:not(:disabled) {
+        background: rgba(126, 138, 107, 0.1);
+    }
+    
+    /* Overview stats card hover */
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(126, 138, 107, 0.12);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .stat-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+}
+
+/* iPhone viewport fixes (≤414px) */
+@media (max-width: 414px) {
+    .project-title-row {
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .header-actions {
+        width: 100%;
+        justify-content: flex-end;
     }
 }
 

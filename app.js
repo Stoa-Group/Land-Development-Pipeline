@@ -2341,6 +2341,57 @@ function renderDealListByStage(deals) {
 
 // Setup drill-down click handlers
 function setupDrillDownHandlers() {
+    // Stage-group collapse/expand toggle
+    document.querySelectorAll('.stage-group-toggle').forEach(toggle => {
+        if (toggle._collapseHandlerBound) return;
+        toggle._collapseHandlerBound = true;
+        toggle.style.cursor = 'pointer';
+        const headerEl = toggle.closest('.stage-group-header');
+        if (headerEl) headerEl.style.cursor = 'pointer';
+        
+        const handleToggle = function(e) {
+            e.stopPropagation();
+            const group = toggle.closest('.stage-group');
+            if (!group) return;
+            const content = group.querySelector('.stage-group-content');
+            if (!content) return;
+            const isCollapsed = group.classList.toggle('collapsed');
+            toggle.textContent = isCollapsed ? '+' : '-';
+            if (isCollapsed) {
+                content.style.maxHeight = '0';
+                content.style.overflow = 'hidden';
+            } else {
+                content.style.maxHeight = '';
+                content.style.overflow = '';
+            }
+        };
+        
+        toggle.addEventListener('click', handleToggle);
+        if (headerEl && !headerEl._collapseHandlerBound) {
+            headerEl._collapseHandlerBound = true;
+            headerEl.addEventListener('click', function(e) {
+                if (e.target.classList.contains('clickable') || e.target.closest('.clickable')) return;
+                handleToggle(e);
+            });
+        }
+    });
+    
+    // Auto-collapse stage groups on phone to reduce scrolling
+    if (window.IS_MOBILE) {
+        document.querySelectorAll('.stage-group').forEach((group, idx) => {
+            if (idx === 0) return; // Keep first group open
+            if (group.classList.contains('collapsed')) return;
+            const toggle = group.querySelector('.stage-group-toggle');
+            const content = group.querySelector('.stage-group-content');
+            if (toggle && content) {
+                group.classList.add('collapsed');
+                toggle.textContent = '+';
+                content.style.maxHeight = '0';
+                content.style.overflow = 'hidden';
+            }
+        });
+    }
+
     // Stage badge clicks – filter to this stage (add to multi-select)
     document.querySelectorAll('.stage-badge.clickable').forEach(badge => {
         badge.addEventListener('click', function(e) {
@@ -5987,6 +6038,18 @@ function updateFiltersUI() {
     if (dateAddedFilter) dateAddedFilter.value = currentFilters.dateAddedRange || '1y';
     
     // hideStart filter removed - START deals are automatically excluded
+    
+    // Update mobile filter toggle badge
+    const mobileCount = document.getElementById('mobile-filter-active-count');
+    if (mobileCount) {
+        let activeCount = 0;
+        if (currentFilters.stages && currentFilters.stages.length > 0) activeCount++;
+        if (currentFilters.state) activeCount++;
+        if (currentFilters.bank) activeCount++;
+        if (currentFilters.product) activeCount++;
+        if (currentFilters.search) activeCount++;
+        mobileCount.textContent = activeCount > 0 ? String(activeCount) : '';
+    }
 }
 
 // Update sort UI to reflect current sort settings
@@ -7466,22 +7529,35 @@ async function switchView(view, deals) {
         }
     }
     
-    // Update active tab and aria-selected
+    // Update active tab and aria-selected; scroll active tab into view on mobile
     document.querySelectorAll('.nav-tab').forEach(tab => {
         const isActive = tab.dataset.view === view;
         tab.classList.toggle('active', isActive);
         tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        if (isActive && window.IS_MOBILE) {
+            requestAnimationFrame(() => tab.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }));
+        }
     });
     
-    // Show/hide filter and sort controls (contacts has its own inline filters)
-    if (view === 'list' || view === 'location' || view === 'upcoming-dates') {
-        if (filterControls) filterControls.style.display = 'flex';
-        if (sortControls) sortControls.style.display = 'flex';
-        // Update filter UI when showing controls
+    // Show/hide filter and sort controls
+    const mobileFilterToggle = document.getElementById('mobile-filter-toggle');
+    const showFilters = view === 'list' || view === 'location' || view === 'upcoming-dates';
+    
+    if (showFilters) {
+        if (window.IS_MOBILE) {
+            if (mobileFilterToggle) mobileFilterToggle.style.display = 'flex';
+            const filtersExpanded = mobileFilterToggle && mobileFilterToggle.getAttribute('aria-expanded') === 'true';
+            if (filterControls) filterControls.style.display = filtersExpanded ? 'flex' : 'none';
+            if (sortControls) sortControls.style.display = filtersExpanded ? 'flex' : 'none';
+        } else {
+            if (mobileFilterToggle) mobileFilterToggle.style.display = 'none';
+            if (filterControls) filterControls.style.display = 'flex';
+            if (sortControls) sortControls.style.display = 'flex';
+        }
         updateFiltersUI();
-        // Update sort UI to reflect current sort settings
         updateSortUI();
     } else {
+        if (mobileFilterToggle) mobileFilterToggle.style.display = 'none';
         if (filterControls) filterControls.style.display = 'none';
         if (sortControls) sortControls.style.display = 'none';
     }
@@ -8248,9 +8324,28 @@ function initMapFullscreenDelegation() {
 
 // Main initialization
 function updateMobileState() {
-    const m = window.matchMedia && window.matchMedia('(max-width: 768px)').matches || ('ontouchstart' in window && window.innerWidth <= 768);
+    const wasMobile = window.IS_MOBILE;
+    const m = window.matchMedia && window.matchMedia('(max-width: 1024px)').matches || ('ontouchstart' in window && window.innerWidth <= 1024);
     document.documentElement.setAttribute('data-mobile', m ? 'true' : 'false');
     window.IS_MOBILE = m;
+    
+    // Sync mobile filter toggle visibility on resize/rotation
+    const mft = document.getElementById('mobile-filter-toggle');
+    const fc = document.getElementById('filter-controls');
+    const sc = document.getElementById('sort-controls');
+    const showFilters = currentView === 'list' || currentView === 'location' || currentView === 'upcoming-dates';
+    if (showFilters && mft) {
+        if (m) {
+            mft.style.display = 'flex';
+            const expanded = mft.getAttribute('aria-expanded') === 'true';
+            if (fc) fc.style.display = expanded ? 'flex' : 'none';
+            if (sc) sc.style.display = expanded ? 'flex' : 'none';
+        } else {
+            mft.style.display = 'none';
+            if (fc) fc.style.display = 'flex';
+            if (sc) sc.style.display = 'flex';
+        }
+    }
 }
 var _mobileResizeT;
 function debouncedMobileResize() {
@@ -8422,6 +8517,39 @@ async function init() {
         
         // Build bank name mapping
         buildBankNameMap(allDeals);
+        
+        // Mobile filter toggle
+        const mobileFilterToggleBtn = document.getElementById('mobile-filter-toggle');
+        if (mobileFilterToggleBtn) {
+            mobileFilterToggleBtn.addEventListener('click', function() {
+                const fc = document.getElementById('filter-controls');
+                const sc = document.getElementById('sort-controls');
+                const expanded = this.getAttribute('aria-expanded') === 'true';
+                const next = !expanded;
+                this.setAttribute('aria-expanded', String(next));
+                if (fc) fc.style.display = next ? 'flex' : 'none';
+                if (sc) sc.style.display = next ? 'flex' : 'none';
+            });
+        }
+        
+        // Desktop keyboard shortcuts (only on non-mobile)
+        if (!window.IS_MOBILE) {
+            document.addEventListener('keydown', function(e) {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
+                const deals = typeof allDeals !== 'undefined' ? allDeals : [];
+                const viewMap = { '1': 'overview', '2': 'list', '3': 'location', '4': 'product', '5': 'bank', '6': 'upcoming-dates', '7': 'contacts' };
+                if (viewMap[e.key]) { e.preventDefault(); switchView(viewMap[e.key], deals); return; }
+                if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+                    e.preventDefault();
+                    const searchInput = document.getElementById('search-filter') || document.getElementById('deal-pipeline-search');
+                    if (searchInput) { searchInput.focus(); searchInput.select(); }
+                }
+                if (e.key === 'Escape') {
+                    const anyModal = document.querySelector('.modal-overlay[style*="flex"], .deal-detail-modal[style*="flex"]');
+                    if (anyModal) { const closeBtn = anyModal.querySelector('.modal-close, .deal-detail-close'); if (closeBtn) closeBtn.click(); }
+                }
+            });
+        }
         
         // Always set up nav tabs so Contacts/Upcoming Dates etc. work even when no deals (Contacts fetches its own data)
         document.querySelectorAll('.nav-tab').forEach(tab => {

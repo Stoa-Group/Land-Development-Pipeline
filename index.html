@@ -6,7 +6,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <script>(function(){var w=window,d=document.documentElement;var m=w.matchMedia&&w.matchMedia('(max-width:768px)').matches||('ontouchstart'in w)||(w.innerWidth<=768);d.setAttribute('data-mobile',m?'true':'false');w.IS_MOBILE=m;})();</script>
+    <script>(function(){var w=window,d=document.documentElement;var m=w.matchMedia&&w.matchMedia('(max-width:1024px)').matches||('ontouchstart'in w&&w.innerWidth<=1024);d.setAttribute('data-mobile',m?'true':'false');w.IS_MOBILE=m;})();</script>
     <!-- ExcelJS for styled Excel export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -46,6 +46,12 @@
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="contacts">Contacts</button>
           </div>
         </div>
+
+        <!-- Mobile filter toggle (visibility controlled by CSS media queries + JS) -->
+        <button type="button" class="mobile-filter-toggle" id="mobile-filter-toggle" aria-expanded="false" aria-controls="filter-controls">
+          <span class="mobile-filter-toggle-icon">&#9776;</span> Filters &amp; Sort
+          <span class="mobile-filter-active-count" id="mobile-filter-active-count"></span>
+        </button>
 
         <!-- Filter and Sort Controls -->
         <div class="filter-controls" id="filter-controls" style="display: none;">
