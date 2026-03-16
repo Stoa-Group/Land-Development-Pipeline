@@ -1900,14 +1900,14 @@ function renderDealRow(deal) {
                 if (yoc != null && !isNaN(yoc)) return `<span class="yoc-value" title="Yield on Cost: Annualized NOI / Total Project Cost">${yoc.toFixed(1)}%</span>`;
                 return '<span class="yoc-na" title="Insufficient data to calculate Yield on Cost">N/A</span>';
             })()}</td>
-            <td class="deal-cell date-display" data-label="Date Added">${(() => {
+            <td class="deal-cell date-display date-added-cell" data-label="Date Added">${(() => {
                 const ca = deal.CreatedAt;
                 if (!ca) return '-';
                 const d = new Date(ca);
                 if (isNaN(d.getTime())) return '-';
                 return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
             })()}</td>
-            <td class="deal-cell date-display" data-label="Last Updated">${(() => {
+            <td class="deal-cell date-display updated-cell" data-label="Last Updated">${(() => {
                 const ua = deal.UpdatedAt || deal.CreatedAt;
                 if (!ua) return '-';
                 const d = new Date(ua);
@@ -4820,14 +4820,14 @@ async function renderByBank(deals) {
                                                 if (yoc != null && !isNaN(yoc)) return `<span class="yoc-value">${yoc.toFixed(1)}%</span>`;
                                                 return '<span class="yoc-na">N/A</span>';
                                             })()}</td>
-                                            <td class="deal-cell date-display" data-label="Date Added">${(() => {
+                                            <td class="deal-cell date-display date-added-cell" data-label="Date Added">${(() => {
                                                 const ca = deal.CreatedAt;
                                                 if (!ca) return '-';
                                                 const d = new Date(ca);
                                                 if (isNaN(d.getTime())) return '-';
                                                 return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
                                             })()}</td>
-                                            <td class="deal-cell date-display" data-label="Last Updated">${(() => {
+                                            <td class="deal-cell date-display updated-cell" data-label="Last Updated">${(() => {
                                                 const ua = deal.UpdatedAt || deal.CreatedAt;
                                                 if (!ua) return '-';
                                                 const d = new Date(ua);
@@ -4986,14 +4986,14 @@ function renderByProductType(deals) {
                                                 if (yoc != null && !isNaN(yoc)) return `<span class="yoc-value">${yoc.toFixed(1)}%</span>`;
                                                 return '<span class="yoc-na">N/A</span>';
                                             })()}</td>
-                                            <td class="deal-cell date-display" data-label="Date Added">${(() => {
+                                            <td class="deal-cell date-display date-added-cell" data-label="Date Added">${(() => {
                                                 const ca = deal.CreatedAt;
                                                 if (!ca) return '-';
                                                 const d = new Date(ca);
                                                 if (isNaN(d.getTime())) return '-';
                                                 return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}/${d.getFullYear()}`;
                                             })()}</td>
-                                            <td class="deal-cell date-display" data-label="Last Updated">${(() => {
+                                            <td class="deal-cell date-display updated-cell" data-label="Last Updated">${(() => {
                                                 const ua = deal.UpdatedAt || deal.CreatedAt;
                                                 if (!ua) return '-';
                                                 const d = new Date(ua);
@@ -6646,10 +6646,14 @@ function showDealDetail(deal) {
     var navPosition = nav.list.length && nav.index >= 0 ? (nav.index + 1) + ' of ' + nav.list.length : '';
     
     const modal = document.createElement('div');
-    modal.className = 'deal-detail-modal';
+    modal.className = 'deal-detail-modal modal-overlay';
+    modal.style.display = 'flex';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', (deal.Name || deal.name || 'Deal') + ' details');
     modal.innerHTML = `
         <div class="deal-detail-overlay"></div>
-        <div class="deal-detail-content">
+        <div class="deal-detail-content modal-content">
             <div class="deal-detail-header">
                 <div class="deal-detail-nav">
                     <button type="button" class="deal-detail-nav-btn deal-detail-prev" ${nav.prev ? '' : ' disabled'} aria-label="Previous deal">‹ Previous</button>
@@ -7340,18 +7344,14 @@ function showDealDetail(deal) {
         filesSection.querySelectorAll('.deal-detail-files-upload').forEach(function (el) { el.style.display = 'none'; });
     }
     
-    // Close on Escape key (must remove listener when modal closes in any way)
     const escapeHandler = (e) => {
-        if (e.key === 'Escape') {
-            document.removeEventListener('keydown', escapeHandler);
-            modal.remove();
-        }
+        if (e.key === 'Escape') closeModal();
     };
     document.addEventListener('keydown', escapeHandler);
-    
+
     const closeModal = () => {
         document.removeEventListener('keydown', escapeHandler);
-        modal.remove();
+        animateModalClose(modal, () => modal.remove());
     };
     
     // Close handlers
@@ -7385,43 +7385,50 @@ function showDealDetail(deal) {
 }
 
 // Show notes modal
+function animateModalClose(modalEl, onDone) {
+    modalEl.classList.add('modal-closing');
+    setTimeout(() => {
+        if (onDone) onDone();
+        else modalEl.remove();
+    }, 180);
+}
+
 function showNotesModal(dealName, notes) {
-    // Remove existing modal if any
     const existingModal = document.getElementById('notes-modal');
-    if (existingModal) {
-        existingModal.remove();
-    }
-    
-    // Create modal
+    if (existingModal) existingModal.remove();
+
     const modal = document.createElement('div');
     modal.id = 'notes-modal';
-    modal.className = 'notes-modal';
+    modal.className = 'notes-modal modal-overlay';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', dealName + ' notes');
+    modal.style.display = 'flex';
     modal.innerHTML = `
         <div class="notes-modal-overlay"></div>
-        <div class="notes-modal-content">
+        <div class="notes-modal-content modal-content">
             <div class="notes-modal-header">
                 <h3>${dealName}</h3>
-                <button class="notes-modal-close" onclick="this.closest('#notes-modal').remove()">&times;</button>
+                <button class="notes-modal-close" aria-label="Close">&times;</button>
             </div>
             <div class="notes-modal-body">
                 <pre>${notes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
-    // Close on overlay click
-    modal.querySelector('.notes-modal-overlay').addEventListener('click', () => {
+
+    const close = () => animateModalClose(modal, () => {
         modal.remove();
+        document.removeEventListener('keydown', escapeHandler);
     });
-    
-    // Close on Escape key
+
+    modal.querySelector('.notes-modal-close').addEventListener('click', close);
+    modal.querySelector('.notes-modal-overlay').addEventListener('click', close);
+
     const escapeHandler = (e) => {
-        if (e.key === 'Escape') {
-            modal.remove();
-            document.removeEventListener('keydown', escapeHandler);
-        }
+        if (e.key === 'Escape') close();
     };
     document.addEventListener('keydown', escapeHandler);
 }
@@ -7487,6 +7494,11 @@ async function switchView(view, deals) {
         if (listViewToggle) listViewToggle.style.display = 'none';
     }
     
+    // Re-trigger view fade-in animation
+    container.style.animation = 'none';
+    container.offsetHeight; // force reflow
+    container.style.animation = '';
+
     // Render appropriate view
     switch(view) {
         case 'overview':
@@ -8428,12 +8440,16 @@ async function init() {
         
         if (allDeals.length > 0) {
             
-            // Set up search input handler
+            // Set up search input handler (debounced to avoid re-render per keystroke)
             const searchInput = document.getElementById('search-filter');
             if (searchInput) {
+                let searchDebounceTimer = null;
                 searchInput.addEventListener('input', function() {
                     currentFilters.search = this.value.trim();
-                    switchView(currentView, allDeals);
+                    clearTimeout(searchDebounceTimer);
+                    searchDebounceTimer = setTimeout(() => {
+                        switchView(currentView, allDeals);
+                    }, 220);
                 });
             }
             
@@ -8619,16 +8635,14 @@ function initAuthUI() {
     // Modal close buttons
     const closeLoginModal = document.getElementById('close-login-modal');
     const cancelLogin = document.getElementById('cancel-login');
-    if (closeLoginModal) {
-        closeLoginModal.addEventListener('click', () => {
-            document.getElementById('login-modal').style.display = 'none';
-        });
-    }
-    if (cancelLogin) {
-        cancelLogin.addEventListener('click', () => {
-            document.getElementById('login-modal').style.display = 'none';
-        });
-    }
+    const closeLoginFn = () => {
+        const lm = document.getElementById('login-modal');
+        if (!lm) return;
+        lm.classList.add('modal-closing');
+        setTimeout(() => { lm.style.display = 'none'; lm.classList.remove('modal-closing'); }, 180);
+    };
+    if (closeLoginModal) closeLoginModal.addEventListener('click', closeLoginFn);
+    if (cancelLogin) cancelLogin.addEventListener('click', closeLoginFn);
     
     // Deal edit modal
     const closeDealModal = document.getElementById('close-deal-modal');
@@ -9105,9 +9119,15 @@ function calculateSqFtPrice() {
 }
 
 function closeDealEditModal() {
-    document.getElementById('deal-edit-modal').style.display = 'none';
-    currentEditingDeal = null;
-    document.getElementById('deal-edit-error').style.display = 'none';
+    const modal = document.getElementById('deal-edit-modal');
+    if (!modal) return;
+    modal.classList.add('modal-closing');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        modal.classList.remove('modal-closing');
+        currentEditingDeal = null;
+        document.getElementById('deal-edit-error').style.display = 'none';
+    }, 180);
 }
 
 async function handleDealSave(e) {
@@ -10578,9 +10598,13 @@ function initBrokerReferralModal() {
     const cancelBtn = document.getElementById('cancel-broker-referral-btn');
     if (!modal || !form) return;
     const closeModal = () => {
-        modal.style.display = 'none';
-        modal._inputElement = null;
-        modal._dropdownElement = null;
+        modal.classList.add('modal-closing');
+        setTimeout(() => {
+            modal.style.display = 'none';
+            modal.classList.remove('modal-closing');
+            modal._inputElement = null;
+            modal._dropdownElement = null;
+        }, 180);
     };
     if (closeBtn) closeBtn.addEventListener('click', closeModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
@@ -10662,12 +10686,15 @@ function initPreConManagerModal() {
     
     if (!modal || !form) return;
     
-    // Close modal handlers
     const closeModal = () => {
-        modal.style.display = 'none';
-        modal._inputElement = null;
-        modal._wrapperElement = null;
-        modal._dropdownElement = null;
+        modal.classList.add('modal-closing');
+        setTimeout(() => {
+            modal.style.display = 'none';
+            modal.classList.remove('modal-closing');
+            modal._inputElement = null;
+            modal._wrapperElement = null;
+            modal._dropdownElement = null;
+        }, 180);
     };
     
     if (closeBtn) {

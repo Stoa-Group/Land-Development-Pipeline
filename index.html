@@ -120,7 +120,7 @@
         <!-- List View Container -->
         <div class="list-view-container">
           <!-- List View Toggle -->
-          <div class="list-view-toggle" id="list-view-toggle" style="display: none;">
+          <div class="list-view-toggle" id="list-view-toggle" role="group" aria-label="List view grouping" style="display: none;">
             <button class="toggle-btn" data-mode="stage">By Stage</button>
             <button class="toggle-btn" data-mode="product">By Product Type</button>
             <button class="toggle-btn" data-mode="bank">By Bank</button>
@@ -160,7 +160,7 @@
             </button>
             <div class="search-wrapper">
               <span class="search-icon">Search:</span>
-              <input type="text" id="deal-pipeline-search" class="deal-pipeline-search-input" placeholder="Search deals by name, city, state, region, product type, or stage...">
+              <input type="text" id="deal-pipeline-search" class="deal-pipeline-search-input" placeholder="Search deals by name, city, state, region, product type, or stage..." aria-label="Search deals in pipeline">
             </div>
             <span class="deal-pipeline-count" id="deal-pipeline-count">0 deals</span>
           </div>
@@ -185,11 +185,11 @@
     <div class="visible-deal-count-badge" id="visible-deal-count-badge" aria-live="polite">0 deals</div>
 
     <!-- Login Modal -->
-    <div class="modal-overlay" id="login-modal" style="display: none;">
+    <div class="modal-overlay" id="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-modal-title" style="display: none;">
       <div class="modal-content">
         <div class="modal-header">
-          <h2>Admin Login</h2>
-          <button class="modal-close" id="close-login-modal">Close</button>
+          <h2 id="login-modal-title">Admin Login</h2>
+          <button class="modal-close" id="close-login-modal" aria-label="Close">Close</button>
         </div>
         <div class="modal-body">
           <form id="login-form">
@@ -212,11 +212,11 @@
     </div>
 
     <!-- Bank Details Modal -->
-    <div class="modal-overlay" id="bank-details-modal" style="display: none;">
+    <div class="modal-overlay" id="bank-details-modal" role="dialog" aria-modal="true" aria-labelledby="bank-details-title" style="display: none;">
       <div class="modal-content modal-large" style="max-width: 800px;">
         <div class="modal-header">
           <h2 id="bank-details-title">Bank Information</h2>
-          <button class="modal-close" id="close-bank-modal">Close</button>
+          <button class="modal-close" id="close-bank-modal" aria-label="Close">Close</button>
         </div>
         <div class="modal-body">
           <div id="bank-details-content">
@@ -229,11 +229,11 @@
     </div>
 
     <!-- Deal Edit Modal (Comprehensive) -->
-    <div class="modal-overlay" id="deal-edit-modal" style="display: none;">
+    <div class="modal-overlay" id="deal-edit-modal" role="dialog" aria-modal="true" aria-labelledby="deal-edit-title" style="display: none;">
       <div class="modal-content modal-large" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
         <div class="modal-header">
           <h2 id="deal-edit-title">Edit Deal</h2>
-          <button class="modal-close" id="close-deal-modal">Close</button>
+          <button class="modal-close" id="close-deal-modal" aria-label="Close">Close</button>
         </div>
         <div class="modal-body">
           <form id="deal-edit-form">
@@ -457,11 +457,11 @@
     
     <!-- API Client -->
     <!-- Broker/Referral Create Modal (for pipeline table "Add new" flow) -->
-    <div class="modal-overlay" id="broker-referral-modal" style="display: none;">
+    <div class="modal-overlay" id="broker-referral-modal" role="dialog" aria-modal="true" aria-label="Create Broker/Referral Contact" style="display: none;">
       <div class="modal-content">
         <div class="modal-header">
           <h2>Create Broker/Referral Contact</h2>
-          <button class="modal-close" id="close-broker-referral-modal">Close</button>
+          <button class="modal-close" id="close-broker-referral-modal" aria-label="Close">Close</button>
         </div>
         <div class="modal-body">
           <form id="broker-referral-form">
@@ -487,11 +487,11 @@
     </div>
 
     <!-- Pre-Con Manager Create Modal -->
-    <div class="modal-overlay" id="precon-manager-modal" style="display: none;">
+    <div class="modal-overlay" id="precon-manager-modal" role="dialog" aria-modal="true" aria-label="Create Pre-Con Manager" style="display: none;">
       <div class="modal-content">
         <div class="modal-header">
           <h2>Create New Pre-Con Manager</h2>
-          <button class="modal-close" id="close-precon-manager-modal">Close</button>
+          <button class="modal-close" id="close-precon-manager-modal" aria-label="Close">Close</button>
         </div>
         <div class="modal-body">
           <form id="precon-manager-form">
@@ -517,11 +517,11 @@
     </div>
 
     <!-- Export Stage Selection Modal -->
-    <div class="modal-overlay" id="export-stage-modal" style="display: none;">
+    <div class="modal-overlay" id="export-stage-modal" role="dialog" aria-modal="true" aria-label="Select Deal Stages to Export" style="display: none;">
       <div class="modal-content">
         <div class="modal-header">
           <h2>Select Deal Stages to Export</h2>
-          <button class="modal-close" id="close-export-stage-modal">Close</button>
+          <button class="modal-close" id="close-export-stage-modal" aria-label="Close">Close</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
@@ -539,11 +539,11 @@
     </div>
 
     <!-- Export Type Selection Modal -->
-    <div class="modal-overlay" id="export-type-modal" style="display: none;">
+    <div class="modal-overlay" id="export-type-modal" role="dialog" aria-modal="true" aria-label="Select Export Type" style="display: none;">
       <div class="modal-content">
         <div class="modal-header">
           <h2>Select Export Type</h2>
-          <button class="modal-close" id="close-export-type-modal">Close</button>
+          <button class="modal-close" id="close-export-type-modal" aria-label="Close">Close</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
