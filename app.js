@@ -33,6 +33,44 @@ function showToast(message, type) {
     toast._timeout = t;
 }
 
+/** Domo-safe confirmation dialog (native confirm() is blocked in sandboxed iframes). Returns a Promise<boolean>. */
+function domoConfirm(message, opts) {
+    opts = opts || {};
+    return new Promise(function(resolve) {
+        var overlay = document.createElement('div');
+        overlay.className = 'modal-overlay confirm-modal-overlay';
+        overlay.style.display = 'flex';
+        overlay.setAttribute('role', 'alertdialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', 'Confirm action');
+        overlay.innerHTML =
+            '<div class="modal-content confirm-modal-content">' +
+                '<div class="confirm-modal-body">' +
+                    '<p class="confirm-modal-message">' + message.replace(/</g, '&lt;') + '</p>' +
+                '</div>' +
+                '<div class="confirm-modal-actions">' +
+                    '<button type="button" class="btn-secondary confirm-modal-cancel">' + (opts.cancelLabel || 'Cancel') + '</button>' +
+                    '<button type="button" class="btn-danger confirm-modal-ok">' + (opts.confirmLabel || 'Confirm') + '</button>' +
+                '</div>' +
+            '</div>';
+        document.body.appendChild(overlay);
+        var cancelBtn = overlay.querySelector('.confirm-modal-cancel');
+        var okBtn = overlay.querySelector('.confirm-modal-ok');
+        function close(result) {
+            if (typeof animateModalClose === 'function') {
+                animateModalClose(overlay, function() { resolve(result); });
+            } else {
+                overlay.remove();
+                resolve(result);
+            }
+        }
+        cancelBtn.addEventListener('click', function() { close(false); });
+        okBtn.addEventListener('click', function() { close(true); });
+        overlay.addEventListener('click', function(e) { if (e.target === overlay) close(false); });
+        okBtn.focus();
+    });
+}
+
 /* ---------- DOMO Integration for Procore Data ---------- */
 function getDomoQuick() {
     // In Domo apps, domo is available as a global variable from ryuu.js
@@ -5382,7 +5420,8 @@ function setupContactsViewHandlers(container) {
                 showToast('Cannot delete: invalid contact id.', 'error');
                 return;
             }
-            if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+            const confirmed = await domoConfirm(`Delete ${name}? This cannot be undone.`, { confirmLabel: 'Delete' });
+            if (!confirmed) return;
             try {
                 const api = typeof API !== 'undefined' && API.deleteLandDevelopmentContact ? API : null;
                 if (!api) throw new Error('Contacts API not loaded. Ensure api-client is loaded and includes deleteLandDevelopmentContact.');
@@ -9473,7 +9512,8 @@ async function handleDealDelete() {
         return;
     }
     
-    if (!confirm(`Are you sure you want to delete "${currentEditingDeal.Name}"? This action cannot be undone.`)) {
+    const deleteConfirmed = await domoConfirm(`Are you sure you want to delete "${currentEditingDeal.Name}"? This action cannot be undone.`, { confirmLabel: 'Delete' });
+    if (!deleteConfirmed) {
         return;
     }
     
@@ -10258,7 +10298,8 @@ async function saveAllDealPipelineRows() {
     }
     
     const confirmMessage = `Are you sure you want to save changes to ${changedRows.length} deal${changedRows.length !== 1 ? 's' : ''}?`;
-    if (!confirm(confirmMessage)) {
+    const saveConfirmed = await domoConfirm(confirmMessage, { confirmLabel: 'Save' });
+    if (!saveConfirmed) {
         return;
     }
     
@@ -11721,7 +11762,8 @@ window.deleteDealPipelineRow = async function(dealId) {
         return;
     }
     
-    if (!confirm('Are you sure you want to delete this deal? This action cannot be undone.')) {
+    const delConfirmed = await domoConfirm('Are you sure you want to delete this deal? This action cannot be undone.', { confirmLabel: 'Delete' });
+    if (!delConfirmed) {
         return;
     }
     
