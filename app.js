@@ -8742,28 +8742,31 @@ async function init() {
 /** Refresh deals from API (live DB) and re-render. Use after save/delete so UI shows new data immediately, not stale Domo cache. */
 async function refreshDealsFromApi() {
     try {
-        const response = await API.getAllDealPipelines({ forceApi: true });
+        document.querySelectorAll('.deal-detail-modal').forEach(function(m) { m.remove(); });
+        document.querySelectorAll('.contacts-modal-overlay').forEach(function(m) { m.remove(); });
+
+        const [response, loansResponse, banksResponse] = await Promise.all([
+            API.getAllDealPipelines({ forceApi: true }),
+            API.getAllLoans().catch(function() { return { success: false }; }),
+            API.getAllBanks().catch(function() { return { success: false }; })
+        ]);
         if (!response.success) return;
         const dbDeals = response.data || [];
-        let loansMap = {};
-        let banksMap = {};
-        try {
-            const loansResponse = await API.getAllLoans();
-            if (loansResponse.success && loansResponse.data) {
-                loansResponse.data.forEach(loan => {
-                    if (loan.ProjectId) {
-                        if (!loansMap[loan.ProjectId]) loansMap[loan.ProjectId] = [];
-                        loansMap[loan.ProjectId].push(loan);
-                    }
-                });
-            }
-            const banksResponse = await API.getAllBanks();
-            if (banksResponse.success && banksResponse.data) {
-                banksResponse.data.forEach(bank => {
-                    if (bank.BankId) banksMap[bank.BankId] = bank;
-                });
-            }
-        } catch (e) { console.warn('Refresh loans/banks:', e); }
+        var loansMap = {};
+        var banksMap = {};
+        if (loansResponse.success && loansResponse.data) {
+            loansResponse.data.forEach(function(loan) {
+                if (loan.ProjectId) {
+                    if (!loansMap[loan.ProjectId]) loansMap[loan.ProjectId] = [];
+                    loansMap[loan.ProjectId].push(loan);
+                }
+            });
+        }
+        if (banksResponse.success && banksResponse.data) {
+            banksResponse.data.forEach(function(bank) {
+                if (bank.BankId) banksMap[bank.BankId] = bank;
+            });
+        }
         const uniqueDbDeals = deduplicateDbDealsByDealPipelineId(dbDeals);
         const mapped = uniqueDbDeals
             .map(deal => mapDealPipelineDataToDeal(deal, loansMap, banksMap))
@@ -9322,15 +9325,24 @@ function calculateSqFtPrice() {
 }
 
 function closeDealEditModal() {
-    const modal = document.getElementById('deal-edit-modal');
+    var modal = document.getElementById('deal-edit-modal');
     if (!modal) return;
+    modal.style.pointerEvents = 'none';
     modal.classList.add('modal-closing');
-    setTimeout(() => {
+    setTimeout(function() {
         modal.style.display = 'none';
+        modal.style.pointerEvents = '';
         modal.classList.remove('modal-closing');
         currentEditingDeal = null;
-        document.getElementById('deal-edit-error').style.display = 'none';
+        var errDiv = document.getElementById('deal-edit-error');
+        if (errDiv) errDiv.style.display = 'none';
     }, 180);
+    var detailModal = document.querySelector('.deal-detail-modal');
+    if (detailModal) {
+        detailModal.style.pointerEvents = 'none';
+        detailModal.classList.add('modal-closing');
+        setTimeout(function() { detailModal.remove(); }, 180);
+    }
 }
 
 async function handleDealSave(e) {
@@ -9490,8 +9502,8 @@ async function handleDealSave(e) {
         
         if (result.success) {
             closeDealEditModal();
-            // Refresh from API so UI shows new value immediately (not stale Domo cache)
-            await refreshDealsFromApi();
+            showToast('Deal saved successfully.', 'success');
+            refreshDealsFromApi().catch(function(e) { console.warn('Background refresh after save:', e); });
         } else {
             throw new Error(result.error?.message || 'Failed to save deal');
         }
@@ -9521,8 +9533,8 @@ async function handleDealDelete() {
         const result = await API.deleteDealPipeline(currentEditingDeal.DealPipelineId);
         if (result.success) {
             closeDealEditModal();
-            // Refresh from API so UI shows updated list immediately (not stale Domo cache)
-            await refreshDealsFromApi();
+            showToast('Deal deleted.', 'success');
+            refreshDealsFromApi().catch(function(e) { console.warn('Background refresh after delete:', e); });
         } else {
             throw new Error(result.error?.message || 'Failed to delete deal');
         }
