@@ -2647,6 +2647,183 @@ body.map-fullscreen-active {
     }
 }
 
+/* === Mobile fullscreen map optimizations === */
+
+/* Phone fullscreen */
+@media (max-width: 480px) {
+    .map-canvas-container.is-fullscreen {
+        position: fixed !important;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        height: 100dvh;
+        max-width: 100%;
+        z-index: 10000;
+        border-radius: 0;
+        margin: 0;
+    }
+
+    .map-canvas-container.is-fullscreen .location-map-canvas {
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    /* Exit button: top-right, large touch target, safe area aware */
+    .map-canvas-container.is-fullscreen .map-fullscreen-exit {
+        top: max(8px, env(safe-area-inset-top, 8px));
+        right: max(8px, env(safe-area-inset-right, 8px));
+        min-height: 44px;
+        min-width: 44px;
+        padding: 10px 14px;
+        font-size: 13px;
+        border-radius: 22px;
+        z-index: 10002;
+    }
+
+    /* Topbar: full width below exit button, smaller left offset */
+    .map-fullscreen-overlay .map-fullscreen-topbar {
+        top: max(8px, env(safe-area-inset-top, 8px));
+        left: 8px;
+        right: 110px;
+        max-width: calc(100% - 120px);
+        gap: 6px;
+    }
+
+    /* Stage filter chips: smaller on mobile */
+    .map-fs-stage-chip {
+        padding: 5px 8px;
+        font-size: 11px;
+        gap: 4px;
+    }
+    .map-fs-filter-label {
+        font-size: 11px;
+    }
+
+    /* Bottom-left controls: safe area padding */
+    .map-fullscreen-bottom-left {
+        bottom: max(12px, calc(env(safe-area-inset-bottom, 12px) + 4px));
+        left: max(8px, env(safe-area-inset-left, 8px));
+        gap: 8px;
+    }
+
+    /* Deals button: larger touch target */
+    .map-fullscreen-deals-btn {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 10px 18px;
+        font-size: 14px;
+        border-radius: 22px;
+    }
+
+    /* Deals panel: bottom sheet on mobile instead of side panel */
+    .map-fullscreen-deals-panel {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        width: 100%;
+        max-width: 100%;
+        height: 60vh;
+        max-height: 70vh;
+        border-radius: 16px 16px 0 0;
+        transform: translateY(100%);
+        box-shadow: 0 -4px 24px rgba(0,0,0,0.2);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .map-fullscreen-deals-panel.open {
+        transform: translateY(0);
+    }
+
+    /* Deals panel header: add drag handle */
+    .map-fullscreen-deals-panel-header {
+        padding: 8px 16px 12px;
+        position: relative;
+    }
+
+    .map-fullscreen-deals-panel-header::before {
+        content: '';
+        position: absolute;
+        top: 6px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 36px;
+        height: 4px;
+        background: rgba(0,0,0,0.2);
+        border-radius: 2px;
+    }
+
+    /* Deals close button: larger */
+    .map-fullscreen-deals-close {
+        min-height: 44px;
+        min-width: 44px;
+        font-size: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Deal rows in fullscreen panel: larger touch targets */
+    .map-fs-deal-row {
+        padding: 14px;
+        margin-bottom: 10px;
+        min-height: 44px;
+    }
+
+    /* Legend in fullscreen: compact */
+    .map-fullscreen-bottom-left .map-fullscreen-legend-slot > .map-legend {
+        max-height: min(180px, 30vh);
+        font-size: 11px;
+        padding: 8px 10px;
+    }
+
+    /* Exit city view button: prominent */
+    .map-fullscreen-exit-city-btn {
+        min-height: 44px;
+        padding: 10px 16px;
+        font-size: 13px;
+        border-radius: 22px;
+    }
+}
+
+/* Tablet fullscreen */
+@media (min-width: 481px) and (max-width: 1024px) {
+    .map-canvas-container.is-fullscreen .map-fullscreen-exit {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 10px 16px;
+        border-radius: 10px;
+    }
+
+    .map-fullscreen-deals-btn {
+        min-height: 44px;
+        padding: 10px 20px;
+    }
+
+    .map-fs-stage-chip {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+
+    .map-fullscreen-deals-close {
+        min-height: 44px;
+        min-width: 44px;
+        font-size: 22px;
+    }
+
+    .map-fs-deal-row {
+        padding: 14px;
+        min-height: 44px;
+    }
+
+    .map-fullscreen-exit-city-btn {
+        min-height: 44px;
+        padding: 10px 18px;
+    }
+}
+
 /* Split mode: map left, list right (default when Map tab loads) */
 .map-view-panel.view-split .map-split-wrap {
     display: flex;

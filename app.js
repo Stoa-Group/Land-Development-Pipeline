@@ -7586,13 +7586,19 @@ async function switchView(view, deals) {
             break;
         case 'location':
             container.innerHTML = renderByLocation(deals);
-            // Apply filters before initializing map; delay so layout (min-height) is applied before Leaflet measures the div
             const filteredForMap = applyFilters(deals, true);
             setTimeout(async () => {
                 await initMap(filteredForMap);
                 setupDrillDownHandlers();
                 setupMapViewControls();
                 if (mapInstance) mapInstance.invalidateSize();
+                // Auto-enter fullscreen on mobile for better map experience
+                if (window.IS_MOBILE && window.innerWidth <= 768) {
+                    const fsBtn = document.getElementById('map-fullscreen-btn');
+                    if (fsBtn && !document.querySelector('.map-canvas-container.is-fullscreen')) {
+                        setTimeout(() => fsBtn.click(), 200);
+                    }
+                }
             }, 350);
             break;
         case 'upcoming-dates':
@@ -8140,6 +8146,36 @@ function setupFullscreenOverlay() {
         };
     }
     if (closeBtn && panel) closeBtn.onclick = function() { panel.classList.remove('open'); };
+    
+    // Swipe-down to close deals panel on mobile
+    if (panel && window.IS_MOBILE) {
+        let touchStartY = 0;
+        let touchCurrentY = 0;
+        const header = panel.querySelector('.map-fullscreen-deals-panel-header');
+        if (header) {
+            header.addEventListener('touchstart', function(e) {
+                touchStartY = e.touches[0].clientY;
+                touchCurrentY = touchStartY;
+                panel.style.transition = 'none';
+            }, { passive: true });
+            header.addEventListener('touchmove', function(e) {
+                touchCurrentY = e.touches[0].clientY;
+                const delta = touchCurrentY - touchStartY;
+                if (delta > 0) {
+                    panel.style.transform = 'translateY(' + delta + 'px)';
+                }
+            }, { passive: true });
+            header.addEventListener('touchend', function() {
+                panel.style.transition = '';
+                const delta = touchCurrentY - touchStartY;
+                if (delta > 80) {
+                    panel.classList.remove('open');
+                }
+                panel.style.transform = '';
+            });
+        }
+    }
+    
     var exitCityBtn = document.getElementById('map-fullscreen-exit-city-btn');
     if (exitCityBtn) {
         exitCityBtn.style.display = (typeof isCityView !== 'undefined' && isCityView) ? '' : 'none';
