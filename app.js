@@ -794,7 +794,7 @@ let currentFilters = {
 };
 let currentSort = { by: 'date', order: 'asc' }; // Default to ascending (oldest first)
 let blockSort = { by: 'date', order: 'asc' }; // Sort within blocks (year/quarter groups)
-let listViewMode = 'stage'; // 'stage' | 'product' | 'bank' - list view grouping (quarter view is in Timeline tab)
+let listViewMode = 'location'; // 'location' | 'stage' | 'product' | 'bank' - list view grouping (quarter view is in Timeline tab)
 window.productTypeSort = window.productTypeSort || { by: 'name', order: 'asc' }; // Sort config for product type view
 window.bankSort = window.bankSort || { by: 'name', order: 'asc' }; // Sort config for bank view
 window.listViewSort = window.listViewSort || { by: 'name', order: 'asc' }; // Sort config for list view (stage groups)
@@ -1972,6 +1972,118 @@ function renderDealRow(deal) {
     `;
 }
 
+// Render a compact deal row (Name, Stage, Unit Count, Start Date, Bank, Product Type, Location, Notes, Actions - no YoC, Added, Updated)
+function renderDealRowCompact(deal) {
+    const stage = normalizeStage(deal.Stage || deal.stage);
+    const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
+    const dealName = deal.Name || deal.name || 'Unnamed Deal';
+    const dealId = deal.DealPipelineId || '';
+    return `
+        <tr class="deal-row" data-deal-name="${dealName}" data-deal-id="${dealId}" style="cursor: pointer;">
+            <td class="deal-name" data-label="Name">
+                ${deal.commentsCount ? `<span class="comments-count">${deal.commentsCount}</span>` : ''}
+                ${deal.Name || deal.name || 'Unnamed Deal'}
+            </td>
+            <td class="deal-cell" data-label="Stage">
+                <span class="stage-badge clickable ${stageConfig.class}" data-stage="${stage}">${stage}</span>
+            </td>
+            <td class="deal-cell unit-count" data-label="Unit Count">${deal['Unit Count'] || deal.unitCount || deal.units || '-'}</td>
+            <td class="deal-cell date-display ${isOverdue(deal['Start Date'] || deal.startDate) ? 'overdue' : ''}" data-label="Start Date">
+                ${formatDate(deal['Start Date'] || deal.startDate) || '-'}${(deal._procoreOverridesStartDate || (deal['Start Date Source'] && String(deal['Start Date Source']).toLowerCase() === 'procore')) ? ' <span class="date-source-procore" title="Start date controlled by Procore">(Procore)</span>' : ''}
+            </td>
+            <td class="deal-cell secondary" data-label="Bank">${deal.Bank || deal.bank || '-'}</td>
+            <td class="deal-cell secondary" data-label="Product Type">${deal['Product Type'] || deal.productType || '-'}</td>
+            <td class="deal-cell" data-label="Location">
+                ${(() => {
+                    const location = getDealLocation(deal);
+                    return location ? `<span class="location-badge clickable" data-location="${location}">${location}</span>` : '-';
+                })()}
+            </td>
+            <td class="deal-cell notes-cell clickable" data-label="Notes">
+                ${deal.Notes || deal.notes ? `<span class="notes-preview">${(deal.Notes || deal.notes).substring(0, 100)}${(deal.Notes || deal.notes).length > 100 ? '...' : ''}</span>` : '-'}
+            </td>
+            <td class="deal-cell actions-cell" data-label="Actions">
+                <button type="button" class="deal-files-view-btn" data-deal-name="${(dealName || '').replace(/"/g, '&quot;')}" title="Open deal and view/download/upload files" onclick="event.stopPropagation();">View deal & files</button>
+                ${isAuthenticated && isEditMode ? `<button class="deal-edit-btn-small" data-deal-id="${dealId}" onclick="event.stopPropagation(); (function() { const deal = window.allDeals.find(d => d.DealPipelineId === ${dealId}); if (deal) window.openDealEditModal(deal); })();">Edit</button>` : ''}
+            </td>
+        </tr>
+    `;
+}
+
+// Render list by Location (cleaner layout matching Map tab list view)
+function renderDealListByLocation(deals) {
+    const container = document.getElementById('deal-list-container');
+    const filtered = applyFilters(deals, true);
+    if (!filtered || filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <img src="Logos/STOA20-Logo-Mark-Grey.jpg" alt="STOA" class="stoa-logo" />
+                <div class="empty-state-text">No deals found</div>
+                <div class="empty-state-subtext">Try adjusting your filters</div>
+            </div>
+        `;
+        return;
+    }
+    const totalUnits = filtered.reduce((sum, d) => sum + parseInt(d['Unit Count'] || d.unitCount || 0) || 0, 0);
+    const headerHtml = `
+        <div style="margin-bottom: 16px; padding: 12px; background-color: var(--bg-secondary, #f5f5f5); border-radius: 8px; border-left: 4px solid var(--primary-green, #7e8a6b);">
+            <strong>Visible Deals:</strong> ${filtered.length} deal${filtered.length !== 1 ? 's' : ''} | ${totalUnits.toLocaleString()} total units
+        </div>
+    `;
+    const grouped = {};
+    filtered.forEach(deal => {
+        const location = getDealLocation(deal) || 'Unknown';
+        if (!grouped[location]) grouped[location] = [];
+        grouped[location].push(deal);
+    });
+    const locations = Object.keys(grouped).sort((a, b) => {
+        if (a === 'Unknown') return 1;
+        if (b === 'Unknown') return -1;
+        return a.localeCompare(b);
+    });
+    const listSortConfig = window.listViewSort || { by: 'name', order: 'asc' };
+    const sortableTh = (col, label) => {
+        const isActive = listSortConfig.by === col;
+        const order = isActive ? listSortConfig.order : 'asc';
+        const nextOrder = isActive && order === 'asc' ? 'desc' : 'asc';
+        return `<th class="sortable-header list-view-sort ${isActive ? 'sorted' : ''}" data-sort-by="${col}" data-sort-order="${nextOrder}" style="cursor: pointer;">${label} ${isActive ? (order === 'asc' ? '↑' : '↓') : ''}</th>`;
+    };
+    const html = headerHtml + renderActiveFilters() + locations.map(location => {
+        const locationDeals = grouped[location];
+        const sorted = [...locationDeals].sort((a, b) => sortDeal(a, b, listSortConfig));
+        const locUnits = locationDeals.reduce((sum, d) => sum + parseInt(d['Unit Count'] || d.unitCount || 0) || 0, 0);
+        return `
+            <div class="stage-group">
+                <div class="stage-group-header">
+                    <span class="clickable" data-location="${location}">Location: ${location}</span>
+                    <span style="margin-left: auto; opacity: 0.7;">${locationDeals.length} deals | ${locUnits.toLocaleString()} units</span>
+                </div>
+                <div class="stage-group-content">
+                    <div class="stage-group-table-wrapper">
+                        <table class="deal-list-table list-view-table map-location-table">
+                            <thead>
+                                <tr>
+                                    ${sortableTh('name', 'Name')}
+                                    ${sortableTh('stage', 'Stage')}
+                                    ${sortableTh('units', 'Unit Count')}
+                                    ${sortableTh('date', 'Start Date')}
+                                    ${sortableTh('bank', 'Bank')}
+                                    ${sortableTh('product', 'Product Type')}
+                                    ${sortableTh('location', 'Location')}
+                                    ${sortableTh('notes', 'Notes')}
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>${sorted.map(deal => renderDealRowCompact(deal)).join('')}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    container.innerHTML = html;
+}
+
 // Render a stage group
 function renderStageGroup(stage, deals) {
     const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
@@ -2218,7 +2330,9 @@ async function renderDealList(deals) {
         });
     }
     
-    if (listViewMode === 'stage') {
+    if (listViewMode === 'location') {
+        renderDealListByLocation(deals);
+    } else if (listViewMode === 'stage') {
         renderDealListByStage(deals);
     } else if (listViewMode === 'product') {
         container.innerHTML = renderByProductType(deals);
@@ -2670,7 +2784,8 @@ function setupDrillDownHandlers() {
             }
             
             updateFiltersUI();
-            switchView(currentView, allDeals);
+            if (typeof isMobileLayout === 'function' && isMobileLayout()) rerenderForMobileLayout();
+            else switchView(currentView, allDeals);
         }
     });
     
@@ -2746,7 +2861,7 @@ function setupDrillDownHandlers() {
     document.body.addEventListener('click', function(e) {
         if (e.target.classList.contains('toggle-btn') && e.target.closest('#list-view-toggle')) {
             const mode = e.target.dataset.mode;
-            if (mode && (mode === 'timeline' || mode === 'stage' || mode === 'product' || mode === 'bank')) {
+            if (mode && (mode === 'timeline' || mode === 'location' || mode === 'stage' || mode === 'product' || mode === 'bank')) {
                 listViewMode = mode;
                 // Update active state
                 const toggle = document.getElementById('list-view-toggle');
@@ -6720,7 +6835,15 @@ function showDealDetail(deal) {
     const bank = deal.Bank || deal.bank;
     const units = deal['Unit Count'] || deal.unitCount;
     const preCon = deal['Pre-Con'] || deal.preCon || deal['Pre-Con Manager'];
-    const notes = deal.Notes || deal.notes || '';
+    const notesRaw = deal.Notes || deal.notes || '';
+    // Parse out auto-populated rejection reason; only show manually added notes in Notes section
+    let rejectedReason = '';
+    let manualNotes = notesRaw;
+    const rejectionMatch = notesRaw.match(/^Rejection reason:\s*(.+?)(?:\n\n|$)/s);
+    if (rejectionMatch) {
+        rejectedReason = rejectionMatch[1].trim();
+        manualNotes = notesRaw.replace(/^Rejection reason:\s*.+?(?:\n\n)?/s, '').trim();
+    }
     
     // Get full address from Procore match or original data
     const address = deal._procoreMatch?.address || deal._original?.Address || null;
@@ -6748,7 +6871,7 @@ function showDealDetail(deal) {
     var navPosition = nav.list.length && nav.index >= 0 ? (nav.index + 1) + ' of ' + nav.list.length : '';
     
     const modal = document.createElement('div');
-    modal.className = 'deal-detail-modal modal-overlay';
+    modal.className = 'deal-detail-modal modal-overlay' + (typeof isMobileLayout === 'function' && isMobileLayout() ? ' deal-detail-modal-mobile' : '');
     modal.style.display = 'flex';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
@@ -6820,14 +6943,22 @@ function showDealDetail(deal) {
                         ` : ''}
                     </div>
                 </div>
-                ${notes ? `
-                <div class="deal-detail-section">
-                    <h3>Notes</h3>
-                    <div class="deal-detail-notes">
-                        <pre>${notes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                <div class="deal-detail-section deal-detail-files-section" id="deal-detail-files-section" data-deal-pipeline-id="${deal.DealPipelineId || deal._original?.DealPipelineId || ''}">
+                    <h3>Files</h3>
+                    <p class="deal-detail-files-desc">${typeof isAuthenticated !== 'undefined' && isAuthenticated ? 'View, download, upload, rename, or delete files.' : 'View and download files. Only admins can upload, rename, or delete.'}</p>
+                    <p class="deal-detail-files-map-tip">To have this deal show on the map: either <strong>manually enter Latitude and Longitude</strong> in the deal form (Edit or Core Data Management), or <strong>upload a .kmz file</strong> below—coordinates will be extracted and placed on the map.</p>
+                    <div class="deal-detail-files-message" id="deal-detail-files-message" role="status" aria-live="polite"></div>
+                    <input type="file" id="deal-detail-file-version-input" accept="*" style="display: none;" />
+                    <div class="deal-detail-files-subsections" id="deal-detail-files-subsections">
+                        <div class="deal-detail-files-subsection deal-detail-files-single" data-section="Other">
+                            <div class="deal-detail-files-upload" id="deal-detail-files-upload-wrap" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
+                                <input type="file" class="deal-detail-file-input" data-section="Other" multiple />
+                                <button type="button" class="deal-detail-upload-btn" data-section="Other">Upload</button>
+                            </div>
+                            <div class="deal-detail-files-list-section" data-section="Other"><span class="deal-detail-files-loading">Loading…</span></div>
+                        </div>
                     </div>
                 </div>
-                ` : ''}
                 ${deal._original ? `
                 <div class="deal-detail-section">
                     <h3>Additional Information</h3>
@@ -6836,9 +6967,12 @@ function showDealDetail(deal) {
                             const orig = deal._original;
                             const additionalFields = [];
                             
-                            // Land development pipeline attributes
-                            if (deal.BrokerReferralName || orig.BrokerReferralSource) {
-                                additionalFields.push(`<div class="deal-detail-item"><label>Broker/Referral</label><span>${(deal.BrokerReferralName || orig.BrokerReferralSource || '').replace(/</g, '&lt;')}</span></div>`);
+                            // Land development pipeline attributes (Broker/Referral first)
+                            if (deal.BrokerReferralName || orig.BrokerReferralSource || orig.BrokerReferralName) {
+                                additionalFields.push(`<div class="deal-detail-item"><label>Broker/Referral</label><span>${(deal.BrokerReferralName || orig.BrokerReferralSource || orig.BrokerReferralName || '').replace(/</g, '&lt;')}</span></div>`);
+                            }
+                            if (rejectedReason || orig.RejectedReason) {
+                                additionalFields.push(`<div class="deal-detail-item"><label>Rejected Reason</label><span>${(rejectedReason || orig.RejectedReason || '').replace(/</g, '&lt;')}</span></div>`);
                             }
                             if (deal.PriceRaw != null && deal.PriceRaw !== '' || orig.PriceRaw != null && orig.PriceRaw !== '') {
                                 additionalFields.push(`<div class="deal-detail-item"><label>Price (raw)</label><span>${(deal.PriceRaw ?? orig.PriceRaw ?? '').toString().replace(/</g, '&lt;')}</span></div>`);
@@ -6893,14 +7027,17 @@ function showDealDetail(deal) {
                                 additionalFields.push(`<div class="deal-detail-item"><label>Land Price</label><span>$${parseFloat(orig.LandPrice).toLocaleString()}</span></div>`);
                             }
                             
-                            // Sq Ft Price
-                            if (orig.SqFtPrice) {
-                                additionalFields.push(`<div class="deal-detail-item"><label>Sq Ft Price</label><span>$${parseFloat(orig.SqFtPrice).toLocaleString()}</span></div>`);
+                            // Price Per Unit (Land Price / Unit Count)
+                            const landPrice = parseFloat(orig.LandPrice || 0);
+                            const unitCount = parseInt(orig.UnitCount || orig.Units || deal['Unit Count'] || deal.unitCount || 0);
+                            if (landPrice > 0 && unitCount > 0) {
+                                const pricePerUnit = (landPrice / unitCount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+                                additionalFields.push(`<div class="deal-detail-item"><label>Price Per Unit</label><span>$${pricePerUnit}</span></div>`);
                             }
                             
-                            // Execution Date
+                            // PSA to Execution Date
                             if (orig.ExecutionDate) {
-                                additionalFields.push(`<div class="deal-detail-item"><label>Execution Date</label><span>${formatDate(orig.ExecutionDate)}</span></div>`);
+                                additionalFields.push(`<div class="deal-detail-item"><label>PSA to Execution Date</label><span>${formatDate(orig.ExecutionDate)}</span></div>`);
                             }
                             
                             // Due Diligence Date
@@ -6970,83 +7107,26 @@ function showDealDetail(deal) {
                     <div id="deal-detail-asana-discrepancy-content"></div>
                     <div id="deal-detail-asana-other-fields-content" class="deal-detail-asana-other-fields" style="margin-top: 16px;"></div>
                 </div>
-                <div class="deal-detail-section deal-detail-files-section" id="deal-detail-files-section" data-deal-pipeline-id="${deal.DealPipelineId || deal._original?.DealPipelineId || ''}">
-                    <h3>Files</h3>
-                    <p class="deal-detail-files-desc">${typeof isAuthenticated !== 'undefined' && isAuthenticated ? 'View, download, upload, rename, or delete files. Organize by section (Land, Design and Permits, etc.).' : 'View and download files. Only admins can upload, rename, or delete.'}</p>
-                    <p class="deal-detail-files-map-tip">To have this deal show on the map: either <strong>manually enter Latitude and Longitude</strong> in the deal form (Edit or Core Data Management), or <strong>upload a .kmz file</strong> in the Land section below—coordinates will be extracted and placed on the map.</p>
-                    <div class="deal-detail-files-message" id="deal-detail-files-message" role="status" aria-live="polite"></div>
-                    <input type="file" id="deal-detail-file-version-input" accept="*" style="display: none;" />
-                    <div class="deal-detail-files-subsections" id="deal-detail-files-subsections">
-                        <div class="deal-detail-files-subsection" data-section="Land">
-                            <h4 class="deal-detail-files-subsection-title">Land</h4>
-                            <p class="deal-detail-files-subsection-hint">Upload .kmz or .kml files here to extract coordinates for the map.</p>
-                            <div class="deal-detail-files-upload" id="deal-detail-files-upload-wrap" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                                <input type="file" class="deal-detail-file-input" data-section="Land" multiple />
-                                <button type="button" class="deal-detail-upload-btn" data-section="Land">Upload</button>
-                            </div>
-                            <div class="deal-detail-files-list-section" data-section="Land"><span class="deal-detail-files-loading">Loading…</span></div>
-                        </div>
-                        <div class="deal-detail-files-subsection" data-section="Design and Permits">
-                            <h4 class="deal-detail-files-subsection-title">Design and Permits</h4>
-                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                                <input type="file" class="deal-detail-file-input" data-section="Design and Permits" multiple />
-                                <button type="button" class="deal-detail-upload-btn" data-section="Design and Permits">Upload</button>
-                            </div>
-                            <div class="deal-detail-files-list-section" data-section="Design and Permits"><span class="deal-detail-files-loading">Loading…</span></div>
-                        </div>
-                        <div class="deal-detail-files-subsection" data-section="Comp Validation">
-                            <h4 class="deal-detail-files-subsection-title">Comp Validation</h4>
-                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                                <input type="file" class="deal-detail-file-input" data-section="Comp Validation" multiple />
-                                <button type="button" class="deal-detail-upload-btn" data-section="Comp Validation">Upload</button>
-                            </div>
-                            <div class="deal-detail-files-list-section" data-section="Comp Validation"><span class="deal-detail-files-loading">Loading…</span></div>
-                        </div>
-                        <div class="deal-detail-files-subsection" data-section="Contractor">
-                            <h4 class="deal-detail-files-subsection-title">Contractor</h4>
-                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                                <input type="file" class="deal-detail-file-input" data-section="Contractor" multiple />
-                                <button type="button" class="deal-detail-upload-btn" data-section="Contractor">Upload</button>
-                            </div>
-                            <div class="deal-detail-files-list-section" data-section="Contractor"><span class="deal-detail-files-loading">Loading…</span></div>
-                        </div>
-                        <div class="deal-detail-files-subsection" data-section="Legal">
-                            <h4 class="deal-detail-files-subsection-title">Legal</h4>
-                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                                <input type="file" class="deal-detail-file-input" data-section="Legal" multiple />
-                                <button type="button" class="deal-detail-upload-btn" data-section="Legal">Upload</button>
-                            </div>
-                            <div class="deal-detail-files-list-section" data-section="Legal"><span class="deal-detail-files-loading">Loading…</span></div>
-                        </div>
-                        <div class="deal-detail-files-subsection" data-section="Underwriting">
-                            <h4 class="deal-detail-files-subsection-title">Underwriting</h4>
-                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                                <input type="file" class="deal-detail-file-input" data-section="Underwriting" multiple />
-                                <button type="button" class="deal-detail-upload-btn" data-section="Underwriting">Upload</button>
-                            </div>
-                            <div class="deal-detail-files-list-section" data-section="Underwriting"><span class="deal-detail-files-loading">Loading…</span></div>
-                        </div>
-                        <div class="deal-detail-files-subsection" data-section="Other">
-                            <h4 class="deal-detail-files-subsection-title">Other</h4>
-                            <div class="deal-detail-files-upload" style="${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '' : 'display: none;'}">
-                                <input type="file" class="deal-detail-file-input" data-section="Other" multiple />
-                                <button type="button" class="deal-detail-upload-btn" data-section="Other">Upload</button>
-                            </div>
-                            <div class="deal-detail-files-list-section" data-section="Other"><span class="deal-detail-files-loading">Loading…</span></div>
-                        </div>
+                ${manualNotes ? `
+                <div class="deal-detail-section">
+                    <h3>Notes</h3>
+                    <div class="deal-detail-notes">
+                        <pre>${manualNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
                     </div>
                 </div>
+                ` : ''}
             </div>
         </div>
     `;
     
     document.body.appendChild(modal);
+    document.body.classList.add('deal-modal-open');
     
     const dealPipelineId = deal.DealPipelineId || deal._original?.DealPipelineId;
     const filesSection = modal.querySelector('#deal-detail-files-section');
     const filesMessageEl = modal.querySelector('#deal-detail-files-message');
-    var DEAL_PIPELINE_FILE_SECTIONS = ['Land', 'Design and Permits', 'Comp Validation', 'Contractor', 'Legal', 'Underwriting'];
-    var sectionKeys = DEAL_PIPELINE_FILE_SECTIONS.concat('Other');
+    var DEAL_PIPELINE_FILE_SECTIONS = ['Land', 'Design and Permits', 'Comp Validation', 'Contractor', 'Legal', 'Underwriting', 'Other'];
+    var sectionKeys = ['Other'];
     
     // Show message in Files section (works in sandboxed iframe where alert() is blocked)
     function showFilesMessage(text, isError) {
@@ -7125,8 +7205,7 @@ function showDealDetail(deal) {
             var bySection = {};
             sectionKeys.forEach(function (k) { bySection[k] = []; });
             list.forEach(function (a) {
-                var sec = displaySectionForAttachment(a, list);
-                bySection[sec].push(a);
+                bySection['Other'].push(a);
             });
 
             var token = (typeof API.getAuthToken === 'function' && API.getAuthToken()) || (typeof localStorage !== 'undefined' && localStorage.getItem('authToken'));
@@ -7453,7 +7532,10 @@ function showDealDetail(deal) {
 
     const closeModal = () => {
         document.removeEventListener('keydown', escapeHandler);
-        animateModalClose(modal, () => modal.remove());
+        animateModalClose(modal, () => {
+            document.body.classList.remove('deal-modal-open');
+            modal.remove();
+        });
     };
     
     // Close handlers
@@ -8032,7 +8114,8 @@ function initStageFilterDropdowns() {
             var checked = Array.from(checkboxes).map(function(c) { return c.value; });
             if (typeof currentFilters !== 'undefined') currentFilters.stages = checked;
             if (typeof updateFiltersUI === 'function') updateFiltersUI();
-            if (typeof switchView === 'function' && typeof currentView !== 'undefined' && typeof allDeals !== 'undefined') switchView(currentView, allDeals);
+            if (typeof isMobileLayout === 'function' && isMobileLayout() && typeof rerenderForMobileLayout === 'function') rerenderForMobileLayout();
+            else if (typeof switchView === 'function' && typeof currentView !== 'undefined' && typeof allDeals !== 'undefined') switchView(currentView, allDeals);
         }
     });
     // Use capture phase so we run before any other handler (sticky header / iframe can't steal the click)
@@ -8398,11 +8481,27 @@ function initMapFullscreenDelegation() {
 }
 
 // Main initialization
+function isMobileLayout() {
+    return !!(window.IS_MOBILE_LAYOUT);
+}
+function updateMobileLayoutState() {
+    const mq600 = window.matchMedia && window.matchMedia('(max-width: 600px)').matches;
+    const mq768Portrait = window.matchMedia && window.matchMedia('(max-width: 768px)').matches && window.matchMedia('(orientation: portrait)').matches;
+    const ml = mq600 || mq768Portrait;
+    document.documentElement.setAttribute('data-mobile-layout', ml ? 'true' : 'false');
+    window.IS_MOBILE_LAYOUT = ml;
+    return ml;
+}
 function updateMobileState() {
     const wasMobile = window.IS_MOBILE;
+    const wasMobileLayout = window.IS_MOBILE_LAYOUT;
     const m = window.matchMedia && window.matchMedia('(max-width: 1024px)').matches || ('ontouchstart' in window && window.innerWidth <= 1024);
     document.documentElement.setAttribute('data-mobile', m ? 'true' : 'false');
     window.IS_MOBILE = m;
+    const ml = updateMobileLayoutState();
+    if (wasMobileLayout !== ml && typeof rerenderForMobileLayout === 'function') {
+        rerenderForMobileLayout();
+    }
     
     // Sync mobile filter toggle visibility on resize/rotation
     const mft = document.getElementById('mobile-filter-toggle');
@@ -8427,10 +8526,190 @@ function debouncedMobileResize() {
     clearTimeout(_mobileResizeT);
     _mobileResizeT = setTimeout(updateMobileState, 100);
 }
+
+function renderMobileDealCards(deals) {
+    const container = document.getElementById('mobile-deal-cards-container');
+    if (!container) return;
+    if (!deals || deals.length === 0) {
+        container.innerHTML = '<div class="mobile-empty-state"><p>No deals found</p><p class="mobile-empty-sub">Try adjusting your filters</p></div>';
+        return;
+    }
+    const sortConfig = window.listViewSort || currentSort || { by: 'date', order: 'asc' };
+    const sorted = [...deals].sort((a, b) => sortDeal(a, b, sortConfig));
+    container.innerHTML = sorted.map(deal => {
+        const stage = normalizeStage(deal.Stage || deal.stage);
+        const cfg = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
+        const loc = getDealLocation(deal) || '';
+        const units = deal['Unit Count'] || deal.unitCount || '';
+        const startDate = deal['Start Date'] || deal.startDate || deal.dueon || deal.due_on;
+        const dateStr = startDate ? (typeof startDate === 'string' ? startDate.split('T')[0] : new Date(startDate).toISOString().split('T')[0]) : '';
+        const name = (deal.Name || deal.name || 'Unnamed').replace(/</g, '&lt;');
+        return `<div class="mobile-deal-card" data-deal-id="${(deal.DealPipelineId || deal.id || '').toString().replace(/"/g, '&quot;')}" role="button" tabindex="0">
+            <div class="mobile-deal-card-header">
+                <span class="stage-badge ${cfg.class}">${stage}</span>
+                <span class="mobile-deal-card-name">${name}</span>
+            </div>
+            <div class="mobile-deal-card-meta">${loc ? '<span>' + loc.replace(/</g, '&lt;') + '</span>' : ''}${units ? '<span>' + units + ' units</span>' : ''}${dateStr ? '<span>' + dateStr + '</span>' : ''}</div>
+        </div>`;
+    }).join('');
+    container.querySelectorAll('.mobile-deal-card').forEach(card => {
+        const id = card.dataset.dealId;
+        const deal = (window.allDeals || []).find(d => String(d.DealPipelineId || d.id || '') === id) || sorted.find(d => String(d.DealPipelineId || d.id || '') === id);
+        if (deal) {
+            card.addEventListener('click', () => showDealDetail(deal));
+            card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showDealDetail(deal); } });
+        }
+    });
+}
+
+function openMobileFilterDrawer() {
+    const drawer = document.getElementById('mobile-filter-drawer');
+    const body = document.getElementById('mobile-filter-drawer-body');
+    const fc = document.getElementById('filter-controls');
+    const sc = document.getElementById('sort-controls');
+    if (drawer && body && fc && sc) {
+        body.appendChild(fc);
+        body.appendChild(sc);
+        drawer.setAttribute('aria-hidden', 'false');
+        drawer.classList.add('is-open');
+        updateFiltersUI();
+        updateSortUI();
+    }
+}
+function closeMobileFilterDrawer() {
+    const drawer = document.getElementById('mobile-filter-drawer');
+    const body = document.getElementById('mobile-filter-drawer-body');
+    const desktopContent = document.getElementById('desktop-content');
+    const fc = document.getElementById('filter-controls');
+    const sc = document.getElementById('sort-controls');
+    const listView = document.querySelector('.list-view-container');
+    if (drawer && body && desktopContent && fc && sc && listView) {
+        drawer.classList.remove('is-open');
+        drawer.setAttribute('aria-hidden', 'true');
+        desktopContent.insertBefore(sc, listView);
+        desktopContent.insertBefore(fc, sc);
+    }
+}
+
+function rerenderForMobileLayout() {
+    const dc = document.getElementById('desktop-content');
+    const ms = document.getElementById('mobile-shell');
+    if (isMobileLayout()) {
+        if (dc) dc.style.display = 'none';
+        if (ms) { ms.style.display = ''; ms.removeAttribute('aria-hidden'); }
+        const deals = typeof allDeals !== 'undefined' ? allDeals : [];
+        const filtered = applyFilters(deals, true);
+        renderMobileDealCards(filtered);
+        const mapPane = document.getElementById('mobile-map-pane');
+        if (mapPane && mapPane.style.display !== 'none') {
+            const container = document.getElementById('mobile-map-container');
+            if (container && typeof initMap === 'function') {
+                initMap(filtered).then(() => {
+                    if (typeof mapInstance !== 'undefined' && mapInstance) mapInstance.invalidateSize();
+                }).catch(() => {});
+            }
+        }
+    } else {
+        if (dc) dc.style.display = '';
+        if (ms) { ms.style.display = 'none'; ms.setAttribute('aria-hidden', 'true'); }
+        closeMobileFilterDrawer();
+        switchView(currentView, typeof allDeals !== 'undefined' ? allDeals : []);
+    }
+}
+
+function initMobileLayout() {
+    const shell = document.getElementById('mobile-shell');
+    const bottomNav = document.getElementById('mobile-bottom-nav');
+    if (!shell || !bottomNav) return;
+    if (window.matchMedia) {
+        window.matchMedia('(max-width: 600px)').addEventListener('change', debouncedMobileResize);
+        window.matchMedia('(max-width: 768px)').addEventListener('change', debouncedMobileResize);
+        window.matchMedia('(orientation: portrait)').addEventListener('change', debouncedMobileResize);
+    }
+    bottomNav.querySelectorAll('.mobile-nav-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const pane = btn.dataset.pane;
+            bottomNav.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const dealsPane = document.getElementById('mobile-deals-pane');
+            const mapPane = document.getElementById('mobile-map-pane');
+            const morePane = document.getElementById('mobile-more-pane');
+            if (pane === 'deals') {
+                if (dealsPane) dealsPane.style.display = '';
+                if (mapPane) mapPane.style.display = 'none';
+                if (morePane) morePane.style.display = 'none';
+                closeMobileFilterDrawer();
+            } else if (pane === 'map') {
+                if (dealsPane) dealsPane.style.display = 'none';
+                if (mapPane) { mapPane.style.display = ''; mapPane.style.flex = '1'; }
+                if (morePane) morePane.style.display = 'none';
+                closeMobileFilterDrawer();
+                const container = document.getElementById('mobile-map-container');
+                const filtered = applyFilters(typeof allDeals !== 'undefined' ? allDeals : [], true);
+                if (container && typeof renderByLocation === 'function') {
+                    container.innerHTML = renderByLocation(filtered);
+                    setTimeout(async () => {
+                        if (typeof initMap === 'function') await initMap(filtered);
+                        if (mapInstance) mapInstance.invalidateSize();
+                    }, 100);
+                }
+            } else if (pane === 'filter') {
+                if (dealsPane) dealsPane.style.display = 'none';
+                if (mapPane) mapPane.style.display = 'none';
+                if (morePane) morePane.style.display = 'none';
+                openMobileFilterDrawer();
+            } else if (pane === 'more') {
+                closeMobileFilterDrawer();
+                if (dealsPane) dealsPane.style.display = 'none';
+                if (mapPane) mapPane.style.display = 'none';
+                if (morePane) { morePane.style.display = ''; morePane.style.flex = '1'; }
+            }
+        });
+    });
+    document.getElementById('mobile-filter-drawer-close')?.addEventListener('click', () => {
+        closeMobileFilterDrawer();
+        bottomNav.querySelector('.mobile-nav-btn[data-pane="deals"]')?.click();
+    });
+    document.querySelectorAll('.mobile-more-link').forEach(link => {
+        link.addEventListener('click', () => {
+            const view = link.dataset.view;
+            closeMobileFilterDrawer();
+            const links = document.getElementById('mobile-more-links');
+            const wrap = document.getElementById('mobile-more-view-wrap');
+            const scroll = document.getElementById('mobile-more-view-scroll');
+            const dealListContainer = document.getElementById('deal-list-container');
+            const listViewContainer = document.querySelector('.list-view-container');
+            if (links && wrap && scroll && dealListContainer && listViewContainer) {
+                links.style.display = 'none';
+                wrap.style.display = '';
+                scroll.innerHTML = '';
+                scroll.appendChild(dealListContainer);
+                currentView = view;
+                switchView(view, typeof allDeals !== 'undefined' ? allDeals : []).then(() => {
+                    if (typeof setupDrillDownHandlers === 'function') setupDrillDownHandlers();
+                });
+            }
+        });
+    });
+    document.getElementById('mobile-more-back')?.addEventListener('click', () => {
+        const links = document.getElementById('mobile-more-links');
+        const wrap = document.getElementById('mobile-more-view-wrap');
+        const scroll = document.getElementById('mobile-more-view-scroll');
+        const dealListContainer = document.getElementById('deal-list-container');
+        const listViewContainer = document.querySelector('.list-view-container');
+        if (links && wrap && scroll && dealListContainer && listViewContainer) {
+            wrap.style.display = 'none';
+            links.style.display = '';
+            listViewContainer.appendChild(dealListContainer);
+        }
+    });
+}
+
 async function init() {
-    // Mobile: keep data-mobile in sync on resize/rotate
+    // Mobile: keep data-mobile and data-mobile-layout in sync on resize/rotate
     updateMobileState();
     window.addEventListener('resize', debouncedMobileResize);
+    initMobileLayout();
     // One-time: stage filter dropdown so "All Stages" and overview stage dropdown work
     initStageFilterDropdowns();
     // One-time: map fullscreen button (delegated so it works in Domo/iframe and after re-render)
@@ -8651,7 +8930,8 @@ async function init() {
                     currentFilters.search = this.value.trim();
                     clearTimeout(searchDebounceTimer);
                     searchDebounceTimer = setTimeout(() => {
-                        switchView(currentView, allDeals);
+                        if (isMobileLayout()) rerenderForMobileLayout();
+                        else switchView(currentView, allDeals);
                     }, 220);
                 });
             }
@@ -8662,17 +8942,21 @@ async function init() {
                 filterControlsContainer.addEventListener('change', function(e) {
                     if (e.target.id === 'state-filter') {
                         currentFilters.state = e.target.value;
-                        switchView(currentView, allDeals);
+                        if (isMobileLayout()) rerenderForMobileLayout();
+                        else switchView(currentView, allDeals);
                     } else if (e.target.id === 'bank-filter') {
                         currentFilters.bank = e.target.value;
-                        switchView(currentView, allDeals);
+                        if (isMobileLayout()) rerenderForMobileLayout();
+                        else switchView(currentView, allDeals);
                     } else if (e.target.id === 'product-filter') {
                         currentFilters.product = e.target.value;
-                        switchView(currentView, allDeals);
+                        if (isMobileLayout()) rerenderForMobileLayout();
+                        else switchView(currentView, allDeals);
                     } else if (e.target.id === 'date-added-filter') {
                         currentFilters.dateAddedRange = e.target.value;
                         try { localStorage.setItem('dealPipeline_dateAddedDefault', e.target.value); } catch (e2) { /* ignore */ }
-                        switchView(currentView, allDeals);
+                        if (isMobileLayout()) rerenderForMobileLayout();
+                        else switchView(currentView, allDeals);
                     }
                 });
             }
@@ -8702,7 +8986,8 @@ async function init() {
                     updateFiltersUI();
                     if (stagePanel) { stagePanel.setAttribute('aria-hidden', 'true'); stagePanel.style.display = 'none'; }
                     if (stageTrigger) stageTrigger.setAttribute('aria-expanded', 'false');
-                    switchView(currentView, allDeals);
+                    if (isMobileLayout()) rerenderForMobileLayout();
+                    else switchView(currentView, allDeals);
                 });
             }
             
@@ -8714,12 +8999,14 @@ async function init() {
                         currentSort.by = e.target.value;
                         window.listViewSort = window.listViewSort || {};
                         window.listViewSort.by = e.target.value;
-                        switchView(currentView, allDeals);
+                        if (isMobileLayout()) rerenderForMobileLayout();
+                        else switchView(currentView, allDeals);
                     } else if (e.target.id === 'sort-order') {
                         currentSort.order = e.target.value;
                         window.listViewSort = window.listViewSort || {};
                         window.listViewSort.order = e.target.value;
-                        switchView(currentView, allDeals);
+                        if (isMobileLayout()) rerenderForMobileLayout();
+                        else switchView(currentView, allDeals);
                     }
                 });
             }
@@ -8728,9 +9015,26 @@ async function init() {
             updateFiltersUI();
             updateSortUI();
             
-            // Render initial view
-            switchView(currentView, allDeals);
+            // Show/hide desktop vs mobile layout
+            const dc = document.getElementById('desktop-content');
+            const ms = document.getElementById('mobile-shell');
+            if (isMobileLayout()) {
+                if (dc) dc.style.display = 'none';
+                if (ms) { ms.style.display = ''; ms.removeAttribute('aria-hidden'); }
+                rerenderForMobileLayout();
+            } else {
+                if (dc) dc.style.display = '';
+                if (ms) { ms.style.display = 'none'; ms.setAttribute('aria-hidden', 'true'); }
+                switchView(currentView, allDeals);
+            }
         } else {
+            if (isMobileLayout()) {
+                const dc = document.getElementById('desktop-content');
+                const ms = document.getElementById('mobile-shell');
+                if (dc) dc.style.display = 'none';
+                if (ms) { ms.style.display = ''; ms.removeAttribute('aria-hidden'); }
+                renderMobileDealCards([]);
+            }
             showError('No deals found in the database.', { showRetry: true });
         }
     } catch (error) {
@@ -9239,13 +9543,15 @@ window.openDealEditModal = async function(deal) {
     document.getElementById('edit-priority').value = original.Priority || '';
     document.getElementById('edit-acreage').value = original.Acreage || '';
     document.getElementById('edit-land-price').value = original.LandPrice || '';
-    const sqftPriceField = document.getElementById('edit-sqft-price');
-    if (sqftPriceField) {
-        sqftPriceField.value = original.SqFtPrice || '';
-        sqftPriceField.classList.add('auto-calculated-field');
-        sqftPriceField.setAttribute('data-source', 'Auto-calculated');
-        sqftPriceField.style.cursor = 'not-allowed';
-        sqftPriceField.title = 'Read-only: Auto-calculated from Land Price and Acreage. Update those fields to recalculate.';
+    const pricePerUnitField = document.getElementById('edit-price-per-unit');
+    if (pricePerUnitField) {
+        const lp = parseFloat(original.LandPrice || 0);
+        const uc = parseInt(original.UnitCount || original.Units || 0, 10);
+        pricePerUnitField.value = (lp > 0 && uc > 0) ? (lp / uc).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '';
+        pricePerUnitField.classList.add('auto-calculated-field');
+        pricePerUnitField.setAttribute('data-source', 'Auto-calculated');
+        pricePerUnitField.style.cursor = 'not-allowed';
+        pricePerUnitField.title = 'Read-only: Auto-calculated from Land Price and Unit Count. Update those fields to recalculate.';
     }
     document.getElementById('edit-execution-date').value = formatDateInput(original.ExecutionDate);
     document.getElementById('edit-due-diligence-date').value = formatDateInput(original.DueDiligenceDate);
@@ -9276,24 +9582,26 @@ window.openDealEditModal = async function(deal) {
     const editCountyParish = document.getElementById('edit-county-parish');
     if (editCountyParish) editCountyParish.value = deal.CountyParish || original.County || '';
     
-    // Auto-calculate SqFtPrice if Acreage and LandPrice are present
-    const acreage = parseFloat(original.Acreage || '');
+    // Auto-calculate Price Per Unit if LandPrice and UnitCount are present
     const landPrice = parseFloat(original.LandPrice || '');
-    if (acreage > 0 && landPrice > 0) {
-        const sqFtPrice = (landPrice / (acreage * 43560)).toFixed(2);
-        document.getElementById('edit-sqft-price').value = sqFtPrice;
+    const unitCount = parseInt(original.UnitCount || original.Units || '', 10);
+    const pricePerUnitEl = document.getElementById('edit-price-per-unit');
+    if (pricePerUnitEl && landPrice > 0 && unitCount > 0) {
+        pricePerUnitEl.value = (landPrice / unitCount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    } else if (pricePerUnitEl) {
+        pricePerUnitEl.value = '';
     }
     
     // Add listeners for auto-calculation
-    const acreageField = document.getElementById('edit-acreage');
+    const unitCountField = document.getElementById('edit-unit-count');
     const landPriceField = document.getElementById('edit-land-price');
-    if (acreageField) {
-        acreageField.removeEventListener('input', calculateSqFtPrice);
-        acreageField.addEventListener('input', calculateSqFtPrice);
+    if (unitCountField) {
+        unitCountField.removeEventListener('input', calculatePricePerUnit);
+        unitCountField.addEventListener('input', calculatePricePerUnit);
     }
     if (landPriceField) {
-        landPriceField.removeEventListener('input', calculateSqFtPrice);
-        landPriceField.addEventListener('input', calculateSqFtPrice);
+        landPriceField.removeEventListener('input', calculatePricePerUnit);
+        landPriceField.addEventListener('input', calculatePricePerUnit);
     }
     
     // Show/hide rejection reason when stage is Rejected
@@ -9311,16 +9619,15 @@ window.openDealEditModal = async function(deal) {
     modal.style.display = 'flex';
 }
 
-function calculateSqFtPrice() {
-    const acreage = parseFloat(document.getElementById('edit-acreage')?.value || 0);
+function calculatePricePerUnit() {
+    const unitCount = parseInt(document.getElementById('edit-unit-count')?.value || 0, 10);
     const landPrice = parseFloat(document.getElementById('edit-land-price')?.value || 0);
-    const sqFtPriceField = document.getElementById('edit-sqft-price');
+    const pricePerUnitField = document.getElementById('edit-price-per-unit');
     
-    if (sqFtPriceField && acreage > 0 && landPrice > 0) {
-        const sqFtPrice = (landPrice / (acreage * 43560)).toFixed(2);
-        sqFtPriceField.value = sqFtPrice;
-    } else if (sqFtPriceField) {
-        sqFtPriceField.value = '';
+    if (pricePerUnitField && unitCount > 0 && landPrice > 0) {
+        pricePerUnitField.value = (landPrice / unitCount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    } else if (pricePerUnitField) {
+        pricePerUnitField.value = '';
     }
 }
 
