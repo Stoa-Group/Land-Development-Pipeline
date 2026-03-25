@@ -2465,9 +2465,10 @@
  * const result = await getAllDealPipelines();
  * console.log('Deals:', result.data);
  */
-  async function getAllDealPipelines() {
-  return apiRequest('/api/pipeline/deal-pipeline');
-}
+  async function getAllDealPipelines(opts) {
+    const bust = opts && opts.forceApi ? `?_=${Date.now()}` : '';
+    return apiRequest(`/api/pipeline/deal-pipeline${bust}`);
+  }
 
 /**
  * Get a deal pipeline record by ID

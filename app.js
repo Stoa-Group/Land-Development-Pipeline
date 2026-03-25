@@ -9089,8 +9089,8 @@ async function refreshDealsFromApi() {
             console.warn('YoC refresh error:', e);
             switchView(currentView, allDeals);
         });
-        const pipelineView = document.getElementById('deal-pipeline-view');
-        if (pipelineView && pipelineView.style.display !== 'none') {
+        // Re-render pipeline table whenever that view is open (prefer body class — display can be driven by CSS)
+        if (document.body.classList.contains('deal-pipeline-open')) {
             await renderDealPipelineTable({ forceApi: true });
         }
     } catch (e) {
@@ -9840,8 +9840,8 @@ async function handleDealDelete() {
         const result = await API.deleteDealPipeline(currentEditingDeal.DealPipelineId);
         if (result.success) {
             closeDealEditModal();
+            await refreshDealsFromApi();
             showToast('Deal deleted.', 'success');
-            refreshDealsFromApi().catch(function(e) { console.warn('Background refresh after delete:', e); });
         } else {
             throw new Error(result.error?.message || 'Failed to delete deal');
         }
@@ -12089,9 +12089,8 @@ window.deleteDealPipelineRow = async function(dealId) {
     try {
         const result = await API.deleteDealPipeline(dealId);
         if (result.success) {
+            await refreshDealsFromApi();
             showToast('Deal deleted successfully!', 'success');
-            // Refresh the table (use API for instant fresh data after delete)
-            await renderDealPipelineTable({ forceApi: true });
         } else {
             throw new Error(result.error?.message || 'Failed to delete deal');
         }
