@@ -92,52 +92,45 @@
    * @param {object|null} data - Request body data (for POST/PUT)
    * @param {string|null} token - Optional auth token (if not provided, uses stored token)
    */
-  async function apiRequest(endpoint, method = 'GET', data = null, token = null, _retryCount) {
-    var maxRetries = 2;
-    var attempt = _retryCount || 0;
-    try {
-      const options = {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      };
+  async function apiRequest(endpoint, method = 'GET', data = null, token = null) {
+  try {
+    const options = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
 
-      const authTokenToUse = token || authToken;
-      if (authTokenToUse) {
-        options.headers['Authorization'] = `Bearer ${authTokenToUse}`;
-      }
-
-      if (data && (method === 'POST' || method === 'PUT')) {
-        options.body = JSON.stringify(data);
-      }
-
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-      const text = await response.text();
-      const result = text ? (function () { try { return JSON.parse(text); } catch (_) { return {}; } })() : {};
-
-      if (!response.ok) {
-        const errMsg = result.error?.message || result.message || `API Error: ${response.status}`;
-        if (response.status >= 500 && attempt < maxRetries) {
-          console.warn(`API ${method} ${endpoint} returned ${response.status}, retrying (${attempt + 1}/${maxRetries})...`);
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-          return apiRequest(endpoint, method, data, token, attempt + 1);
-        }
-        throw new Error(errMsg);
-      }
-
-      return result;
-    } catch (error) {
-      var isRetryable = /ECONNRESET|Failed to fetch|NetworkError|network|timeout/i.test(error.message);
-      if (isRetryable && attempt < maxRetries) {
-        console.warn(`API ${method} ${endpoint} failed with "${error.message}", retrying (${attempt + 1}/${maxRetries})...`);
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-        return apiRequest(endpoint, method, data, token, attempt + 1);
-      }
-      console.error('API Request Error:', error);
-      throw error;
+    // Add authorization header if token is provided or stored
+    const authTokenToUse = token || authToken;
+    if (authTokenToUse) {
+      options.headers['Authorization'] = `Bearer ${authTokenToUse}`;
     }
+
+    if (data && (method === 'POST' || method === 'PUT')) {
+      options.body = JSON.stringify(data);
+    }
+
+    try {
+      if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        options.signal = AbortSignal.timeout(120000);
+      }
+    } catch (_) { /* ignore */ }
+
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+    const text = await response.text();
+    const result = text ? (function () { try { return JSON.parse(text); } catch (_) { return {}; } })() : {};
+
+    if (!response.ok) {
+      throw new Error(result.error?.message || result.message || `API Error: ${response.status}`);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('API Request Error:', error);
+    throw error;
   }
+}
 
 // ============================================================
 // AUTHENTICATION - Capital Markets Users
@@ -2465,10 +2458,9 @@
  * const result = await getAllDealPipelines();
  * console.log('Deals:', result.data);
  */
-  async function getAllDealPipelines(opts) {
-    const bust = opts && opts.forceApi ? `?_=${Date.now()}` : '';
-    return apiRequest(`/api/pipeline/deal-pipeline${bust}`);
-  }
+  async function getAllDealPipelines() {
+  return apiRequest('/api/pipeline/deal-pipeline');
+}
 
 /**
  * Get a deal pipeline record by ID
