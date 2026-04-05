@@ -204,6 +204,15 @@ html[data-mobile="true"] .filter-select {
     position: relative;
 }
 
+/* Desktop content wrapper – must be a constrained flex child so list-view-container can scroll */
+.desktop-content {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 /* When Deal Pipeline is open: single scroll (no nested scrollers) */
 body.deal-pipeline-open {
     overflow: hidden;
