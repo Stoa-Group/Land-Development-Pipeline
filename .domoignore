@@ -1,0 +1,25 @@
+# Dev / local-only files — excluded from domo publish bundle
+
+# Old monolithic files (replaced by split modules)
+app.js
+app-views.js
+
+# Backup / temp files
+*.backup
+*.backup2
+
+# Docs / guides
+*.md
+docs/
+
+# Dev tooling
+.claude/
+.cursor/
+node_modules/
+
+# Logs
+*.log
+
+# Copy files
+**/* copy*
+**/* copy 2*
