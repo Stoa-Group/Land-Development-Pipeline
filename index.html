@@ -636,10 +636,16 @@
       </div>
     </div>
 
+    <script src="config.js"></script>
     <script src="api-client.js"></script>
-    
+
     <!-- domo.js optional utils -->
     <script src="https://unpkg.com/ryuu.js@4.6.0/dist/domo.js" integrity="sha384-YYsd9wQ+wDlUWhvpfGdptxmNYIqBC+52oJtWgPKJadbs3sSFTY/+ZotPbEHTTRWz" crossorigin="anonymous"></script>
+    <!-- globals.js: window.* stubs for inline onclick="" attributes (must run before main.js) -->
+    <script src="globals.js"></script>
+    <!-- app.js: legacy monolith, still loaded for functions not yet extracted to modules -->
     <script src="app.js"></script>
+    <!-- main.js: ES module entry point — imports extracted modules, proxies state, runs init() -->
+    <script type="module" src="main.js"></script>
   </body>
 </html>
