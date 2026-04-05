@@ -643,8 +643,18 @@
     <script src="https://unpkg.com/ryuu.js@4.6.0/dist/domo.js" integrity="sha384-YYsd9wQ+wDlUWhvpfGdptxmNYIqBC+52oJtWgPKJadbs3sSFTY/+ZotPbEHTTRWz" crossorigin="anonymous"></script>
     <!-- globals.js: window.* stubs for inline onclick="" attributes (must run before main.js) -->
     <script src="globals.js"></script>
-    <!-- app-views.js: view rendering and UI orchestration (functions not yet in ES modules) -->
-    <script src="app-views.js"></script>
+    <!-- View rendering plain scripts (split from app-views.js for maintainability) -->
+    <script src="app-timeline.js"></script>
+    <script src="app-overview.js"></script>
+    <script src="app-upcoming-map.js"></script>
+    <script src="app-bank-contacts.js"></script>
+    <script src="app-timeline-units.js"></script>
+    <script src="app-deal-detail.js"></script>
+    <script src="app-view-controller.js"></script>
+    <script src="app-deal-modal.js"></script>
+    <script src="app-pipeline-table.js"></script>
+    <script src="app-admin.js"></script>
+    <script src="app-export.js"></script>
     <!-- main.js: ES module entry point — imports extracted modules, proxies state, runs init() -->
     <script type="module" src="main.js"></script>
   </body>
