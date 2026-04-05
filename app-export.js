@@ -662,9 +662,4 @@ async function performExport(selectedStages, exportType) {
     }
 }
 
-// Initialize when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-} else {
-    init();
-}
+// Note: init() is defined in main.js (ES module) and called there — no bootstrap needed here.

@@ -82,10 +82,9 @@ export async function refreshDealsFromApi() {
             const stage = normalizeStage(deal.Stage || deal.stage);
             return stage !== 'HoldCo' && stage.toLowerCase() !== 'holdco';
         });
-    // Mutate in-place so references remain valid
+    // Mutate in-place so references remain valid (don't reassign window.allDeals — proxy getter returns state.allDeals)
     state.allDeals.length = 0;
     mapped.forEach(d => state.allDeals.push(d));
-    window.allDeals = state.allDeals;
     buildBankNameMap(state.allDeals);
     return { allDeals: state.allDeals, loansMap, banksMap };
 }

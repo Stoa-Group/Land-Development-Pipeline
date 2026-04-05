@@ -384,10 +384,9 @@ async function init() {
             syncProcoreDataToDatabase(procoreData, rawDbDeals).catch(err => console.error('Procore sync error:', err));
         }
 
-        // Update state
+        // Update state (don't reassign window.allDeals — the proxy getter already returns state.allDeals)
         state.allDeals.length = 0;
         allDeals.forEach(d => state.allDeals.push(d));
-        window.allDeals = state.allDeals;
 
         buildBankNameMap(state.allDeals);
 
