@@ -2035,10 +2035,10 @@ body.deal-modal-open .sort-controls {
     align-items: center;
 }
 
-/* More space between sort bar and map "Enter a location" bar */
+/* Compact padding around map view so the canvas can use as much height as possible */
 .list-view-container:has(.map-view-panel) {
-    padding-top: 28px;
-    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+    padding-top: 16px;
+    padding-bottom: 16px;
 }
 
 .sort-group {
@@ -2882,16 +2882,23 @@ body.map-fullscreen-active {
     overflow: visible;
 }
 
-/* Map mode: map only – modest padding so map is visible, extra bottom for scroll room */
+/* Map mode: map only – fills all available space below controls */
 .map-view-panel.view-map {
     justify-content: flex-start;
-    padding-top: 16px;
-    padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px));
+    padding-top: 0;
+    padding-bottom: 0;
+    flex: 1 1 0;
+    min-height: 0;
 }
 .map-view-panel.view-map .map-canvas-container {
     display: block !important;
-    margin-top: auto;
-    margin-bottom: auto;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    aspect-ratio: unset;
+    height: calc(100dvh - 310px);
+    min-height: 450px;
+    border-radius: 10px;
 }
 
 .map-view-panel.view-map .location-map-canvas,

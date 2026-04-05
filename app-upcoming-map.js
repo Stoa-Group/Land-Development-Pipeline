@@ -426,11 +426,11 @@ function renderByLocation(deals) {
     
     const mapHtml = `
         ${renderActiveFilters()}
-        <div class="map-view-panel view-split" id="map-view-panel">
+        <div class="map-view-panel view-map" id="map-view-panel">
             <div id="map-controls-container" class="map-controls">
                 <div class="map-view-toggle" role="group" aria-label="Map, split, or list view">
-                    <button type="button" class="map-view-toggle-btn" id="map-view-map-btn" data-view="map" aria-pressed="false">Map</button>
-                    <button type="button" class="map-view-toggle-btn active" id="map-view-split-btn" data-view="split" aria-pressed="true">Split</button>
+                    <button type="button" class="map-view-toggle-btn active" id="map-view-map-btn" data-view="map" aria-pressed="true">Map</button>
+                    <button type="button" class="map-view-toggle-btn" id="map-view-split-btn" data-view="split" aria-pressed="false">Split</button>
                     <button type="button" class="map-view-toggle-btn" id="map-view-list-btn" data-view="list" aria-pressed="false">List</button>
                 </div>
                 <div class="map-search-row">
