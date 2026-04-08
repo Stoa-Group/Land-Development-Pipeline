@@ -7876,12 +7876,17 @@ function updateVisibleDealCount(deals) {
 
     var mapContainer = document.getElementById('map-canvas-container');
     var isMapView = mapContainer !== null;
-    var isFullscreen = mapContainer && mapContainer.classList.contains('is-fullscreen');
-    var isDrilledIntoCity = typeof currentCityView !== 'undefined' && currentCityView !== null;
 
-    if (isMapView && !isFullscreen && !isDrilledIntoCity && typeof mapMarkers !== 'undefined' && mapMarkers.length > 0) {
-        var locCount = mapMarkers.length;
-        badge.textContent = locCount === 1 ? '1 location' : locCount + ' locations';
+    if (isMapView && typeof mapMarkers !== 'undefined' && mapMarkers.length > 0) {
+        var firstMarker = mapMarkers[0];
+        var isCityGrouped = firstMarker && firstMarker.deals && Array.isArray(firstMarker.deals);
+        if (isCityGrouped) {
+            var locCount = mapMarkers.length;
+            badge.textContent = locCount === 1 ? '1 location' : locCount + ' locations';
+        } else {
+            var dealCount = mapMarkers.length;
+            badge.textContent = dealCount === 1 ? '1 deal' : dealCount + ' deals';
+        }
     } else {
         badge.textContent = count === 1 ? '1 deal' : count + ' deals';
     }
