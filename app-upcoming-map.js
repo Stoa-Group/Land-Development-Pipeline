@@ -886,6 +886,10 @@ async function initMap(deals) {
         }
         }
     }, 300);
+
+    // Update badge to show location count now that markers are created
+    if (typeof updateVisibleDealCount === 'function') updateVisibleDealCount();
+
     } finally {
         mapInitInProgress = false;
     }
@@ -1432,6 +1436,8 @@ function setupMapViewControls() {
             setTimeout(function() { mapInstance.invalidateSize(); }, 600);
         }
         window.addEventListener('keydown', onFullscreenKeydown);
+        // Update badge to show deal count (fullscreen shows individual deals)
+        if (typeof updateVisibleDealCount === 'function') updateVisibleDealCount();
     }
 
     function exitMapFullscreen() {
@@ -1456,6 +1462,8 @@ function setupMapViewControls() {
             setTimeout(function() { mapInstance.invalidateSize(); }, 300);
         }
         window.removeEventListener('keydown', onFullscreenKeydown);
+        // Update badge back to location count (city view)
+        if (typeof updateVisibleDealCount === 'function') updateVisibleDealCount();
     }
 
     function onFullscreenKeydown(e) {

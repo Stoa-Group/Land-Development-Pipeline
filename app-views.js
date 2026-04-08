@@ -5547,10 +5547,20 @@ function updateVisibleDealCount(deals) {
     const filtered = Array.isArray(source) && source.length > 0 ? applyFilters(source, true) : [];
     const count = filtered.length;
     const badge = document.getElementById('visible-deal-count-badge');
-    if (badge) {
+    if (!badge) return;
+
+    var mapContainer = document.getElementById('map-canvas-container');
+    var isMapView = mapContainer !== null;
+    var isFullscreen = mapContainer && mapContainer.classList.contains('is-fullscreen');
+    var isDrilledIntoCity = typeof currentCityView !== 'undefined' && currentCityView !== null;
+
+    if (isMapView && !isFullscreen && !isDrilledIntoCity && typeof mapMarkers !== 'undefined' && mapMarkers.length > 0) {
+        var locCount = mapMarkers.length;
+        badge.textContent = locCount === 1 ? '1 location' : locCount + ' locations';
+    } else {
         badge.textContent = count === 1 ? '1 deal' : count + ' deals';
-        badge.style.display = '';
     }
+    badge.style.display = '';
 }
 
 // Handle errors (options: { showRetry?: boolean } – for load failures)

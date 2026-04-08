@@ -247,15 +247,28 @@ async function switchView(view, deals) {
 }
 
 // Update the fixed bottom-right deal count badge (main dashboard filtered count)
+// In map city-view (non-fullscreen), show "X locations"; in fullscreen/drilled-in, show "X deals"
 function updateVisibleDealCount(deals) {
     const source = deals != null ? deals : (typeof allDeals !== 'undefined' ? allDeals : []);
     const filtered = Array.isArray(source) && source.length > 0 ? applyFilters(source, true) : [];
     const count = filtered.length;
     const badge = document.getElementById('visible-deal-count-badge');
-    if (badge) {
+    if (!badge) return;
+
+    // Check if we are in the map city-view (location view, not fullscreen, not drilled into a city)
+    var mapContainer = document.getElementById('map-canvas-container');
+    var isMapView = mapContainer !== null;
+    var isFullscreen = mapContainer && mapContainer.classList.contains('is-fullscreen');
+    var isDrilledIntoCity = typeof currentCityView !== 'undefined' && currentCityView !== null;
+
+    if (isMapView && !isFullscreen && !isDrilledIntoCity && typeof mapMarkers !== 'undefined' && mapMarkers.length > 0) {
+        // City-grouped view: show location count
+        var locCount = mapMarkers.length;
+        badge.textContent = locCount === 1 ? '1 location' : locCount + ' locations';
+    } else {
         badge.textContent = count === 1 ? '1 deal' : count + ' deals';
-        badge.style.display = '';
     }
+    badge.style.display = '';
 }
 
 // Handle errors (options: { showRetry?: boolean } – for load failures)

@@ -178,7 +178,21 @@ export function updateVisibleDealCount(deals) {
     const source = deals != null ? deals : state.allDeals;
     const filtered = Array.isArray(source) && source.length > 0 ? applyFilters(source, true) : [];
     const badge = document.getElementById('visible-deal-count-badge');
-    if (badge) { badge.textContent = filtered.length === 1 ? '1 deal' : filtered.length + ' deals'; badge.style.display = ''; }
+    if (!badge) return;
+
+    // Check if we are in the map city-view (location view, not fullscreen, not drilled into a city)
+    var mapContainer = document.getElementById('map-canvas-container');
+    var isMapView = mapContainer !== null;
+    var isFullscreen = mapContainer && mapContainer.classList.contains('is-fullscreen');
+    var isDrilledIntoCity = typeof currentCityView !== 'undefined' && currentCityView !== null;
+
+    if (isMapView && !isFullscreen && !isDrilledIntoCity && typeof mapMarkers !== 'undefined' && mapMarkers.length > 0) {
+        var locCount = mapMarkers.length;
+        badge.textContent = locCount === 1 ? '1 location' : locCount + ' locations';
+    } else {
+        badge.textContent = filtered.length === 1 ? '1 deal' : filtered.length + ' deals';
+    }
+    badge.style.display = '';
 }
 
 /* ---------- Mobile cards ---------- */
