@@ -515,8 +515,10 @@ async function initMap(deals) {
             maxBoundsViscosity: 1.0
         });
         
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
         }).addTo(mapInstance);
         
         // In full screen: always individual color-coded markers (no city view / city dots)
@@ -719,7 +721,7 @@ async function initMap(deals) {
         const name = deal.Name || deal.name || 'Unnamed';
         const units = deal['Unit Count'] || deal.unitCount || '';
         const nameEsc = (name || '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const popupContent = `<div style="min-width: 140px;"><strong>${name}</strong><br/>${stage}<br/>${units ? units + ' units' : ''}<br/><button type="button" class="map-popup-btn map-popup-view-deal-btn" data-deal-name="${nameEsc}" style="margin-top: 8px; padding: 6px 12px; background: var(--primary-green); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; width: 100%;">View deal</button></div>`;
+        const popupContent = `<div style="min-width: 160px; font-size: 13px;"><strong>${name}</strong><br/><span style="color: #666;">${stage}</span>${units ? '<br/>' + units + ' units' : ''}<br/><button type="button" class="map-popup-btn map-popup-view-deal-btn" data-deal-name="${nameEsc}">View deal</button></div>`;
         marker.bindPopup(popupContent);
         mapMarkers.push({ marker: marker, deal: deal, location: loc, deals: null, coords: latLng });
         allMapMarkers.push({ marker: marker, deal: deal, location: loc, deals: null, coords: latLng });
@@ -941,8 +943,10 @@ async function initContactsMap(contacts) {
             maxBoundsViscosity: 1.0
         });
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
         }).addTo(contactsMapInstance);
 
         const list = Array.isArray(contacts) ? contacts : [];
@@ -1415,7 +1419,18 @@ function setupMapViewControls() {
         if (legendEl && legendSlot && legendEl.parentNode !== legendSlot) {
             legendSlot.appendChild(legendEl);
         }
-        if (mapInstance) setTimeout(function() { mapInstance.invalidateSize(); }, 150);
+        // Try native Fullscreen API for truly immersive experience (hides browser chrome)
+        try {
+            var fsEl = document.documentElement;
+            if (fsEl.requestFullscreen) fsEl.requestFullscreen().catch(function(){});
+            else if (fsEl.webkitRequestFullscreen) fsEl.webkitRequestFullscreen();
+        } catch (e) { /* Domo iframe may block this — CSS fallback still works */ }
+        // Invalidate map size at multiple intervals for smooth resize
+        if (mapInstance) {
+            setTimeout(function() { mapInstance.invalidateSize(); }, 100);
+            setTimeout(function() { mapInstance.invalidateSize(); }, 300);
+            setTimeout(function() { mapInstance.invalidateSize(); }, 600);
+        }
         window.addEventListener('keydown', onFullscreenKeydown);
     }
 
@@ -1431,7 +1446,15 @@ function setupMapViewControls() {
         if (fullscreenExitBtn) fullscreenExitBtn.style.display = 'none';
         if (fullscreenBtn) fullscreenBtn.textContent = 'Full screen';
         document.body.classList.remove('map-fullscreen-active');
-        if (mapInstance) setTimeout(function() { mapInstance.invalidateSize(); }, 150);
+        // Exit native fullscreen if active
+        try {
+            if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
+            else if (document.webkitFullscreenElement) document.webkitExitFullscreen();
+        } catch (e) { /* ignore */ }
+        if (mapInstance) {
+            setTimeout(function() { mapInstance.invalidateSize(); }, 100);
+            setTimeout(function() { mapInstance.invalidateSize(); }, 300);
+        }
         window.removeEventListener('keydown', onFullscreenKeydown);
     }
 
@@ -1440,6 +1463,18 @@ function setupMapViewControls() {
             exitMapFullscreen();
         }
     }
+
+    // Sync CSS fullscreen state when native fullscreen exits (e.g. user presses Escape in browser fullscreen)
+    document.addEventListener('fullscreenchange', function() {
+        if (!document.fullscreenElement && mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+            exitMapFullscreen();
+        }
+    });
+    document.addEventListener('webkitfullscreenchange', function() {
+        if (!document.webkitFullscreenElement && mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen')) {
+            exitMapFullscreen();
+        }
+    });
 
     if (fullscreenBtn) {
         fullscreenBtn.addEventListener('click', function(e) {

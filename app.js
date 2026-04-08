@@ -3842,10 +3842,12 @@ async function initMap(deals) {
             maxBoundsViscosity: 1.0
         });
         
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
         }).addTo(mapInstance);
-        
+
         // In full screen: always individual color-coded markers (no city view / city dots)
         const mapCanvasContainer = document.getElementById('map-canvas-container');
         const isFullscreen = mapCanvasContainer && mapCanvasContainer.classList.contains('is-fullscreen');
@@ -4268,8 +4270,10 @@ async function initContactsMap(contacts) {
             maxBoundsViscosity: 1.0
         });
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
         }).addTo(contactsMapInstance);
 
         const list = Array.isArray(contacts) ? contacts : [];

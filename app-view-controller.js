@@ -794,6 +794,12 @@ function initMapFullscreenDelegation() {
             if (fsExitBtn) fsExitBtn.style.display = 'block';
             if (fsBtn) fsBtn.textContent = 'Exit full screen';
             document.body.classList.add('map-fullscreen-active');
+            // Try native Fullscreen API for truly immersive experience
+            try {
+                var fsEl = document.documentElement;
+                if (fsEl.requestFullscreen) fsEl.requestFullscreen().catch(function(){});
+                else if (fsEl.webkitRequestFullscreen) fsEl.webkitRequestFullscreen();
+            } catch (e) { /* Domo iframe may block — CSS fallback works */ }
             if (typeof setupFullscreenOverlay === 'function') setupFullscreenOverlay();
             var legendEl = document.getElementById('map-legend');
             var legendSlot = document.getElementById('map-fullscreen-legend-slot');
@@ -852,6 +858,11 @@ function initMapFullscreenDelegation() {
             if (fsExitBtn) fsExitBtn.style.display = 'none';
             if (fsBtn) fsBtn.textContent = 'Full screen';
             document.body.classList.remove('map-fullscreen-active');
+            // Exit native fullscreen if active
+            try {
+                if (document.fullscreenElement) document.exitFullscreen().catch(function(){});
+                else if (document.webkitFullscreenElement) document.webkitExitFullscreen();
+            } catch (e) { /* ignore */ }
             if (typeof mapInstance !== 'undefined' && mapInstance) {
                 setTimeout(function() {
                     mapInstance.invalidateSize();
