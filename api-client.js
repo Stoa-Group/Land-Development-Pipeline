@@ -145,7 +145,7 @@
  * @returns {Promise<object>} { success: true, data: { token, user: {...} } }
  * 
  * @example
- * const result = await login('arovner@stoagroup.com', 'CapitalMarkets26');
+ * const result = await login('arovner@stoagroup.com', 'your_password');
  * setAuthToken(result.data.token); // Store token for future requests
  */
   async function login(username, password) {
@@ -610,7 +610,7 @@
  * @returns {Promise<object>} { success: true, data: { LoanId, LoanTypeName, ... } }
  * @example
  * // First login and store token
- * await login('arovner@stoagroup.com', 'CapitalMarkets26');
+ * await login('arovner@stoagroup.com', 'your_password');
  * // Then create loan
  * await createLoan({ 
  *   ProjectId: 1, 
@@ -3250,7 +3250,7 @@ console.log('Deal Data:', {
 
 // Example 8: Login and authenticate for banking dashboard edits
 // Step 1: Login with username and password
-const loginResult = await login('arovner@stoagroup.com', 'CapitalMarkets26');
+const loginResult = await login('arovner@stoagroup.com', 'your_password');
 if (loginResult.success) {
   console.log('✅ Logged in as:', loginResult.data.user.username);
   // Token is automatically stored for future requests
@@ -3292,7 +3292,7 @@ if (loginResult.success) {
 
 // Example 9: Storing token in browser localStorage (for web apps)
 // After login, store token in localStorage for persistence
-const loginResult2 = await login('Mmurray@stoagroup.com', 'CapitalMarkets26');
+const loginResult2 = await login('Mmurray@stoagroup.com', 'your_password');
 if (loginResult2.success) {
   localStorage.setItem('authToken', loginResult2.data.token);
   setAuthToken(loginResult2.data.token);
