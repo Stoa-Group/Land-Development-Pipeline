@@ -109,6 +109,10 @@ async function switchView(view, deals) {
         case 'upcoming-dates':
             container.innerHTML = renderUpcomingDatesView(deals);
             setupDrillDownHandlers();
+            // Asynchronously fetch and merge Asana tasks into the table
+            if (typeof loadUpcomingDatesAsanaAndMerge === 'function') {
+                loadUpcomingDatesAsanaAndMerge(container, deals);
+            }
             break;
         case 'contacts':
             container.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Loading contacts…</div>';

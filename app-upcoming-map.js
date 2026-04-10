@@ -117,7 +117,6 @@ function loadUpcomingDatesAsanaAndMerge(container, deals) {
         now.setHours(0, 0, 0, 0);
         const combined = [...dealItems, ...asanaItems].sort(function(a, b) { return a.date - b.date; });
 
-        const defaultStageClass = (STAGE_CONFIG['Prospective'] || {}).class || 'prospective';
         const emptyMsg = '<tr class="upcoming-date-row-empty"><td colspan="6" class="no-data">No upcoming deal dates or Asana tasks in the filtered set.</td></tr>';
         const rowsHtml = combined.length === 0 ? emptyMsg : combined.map(function(item) {
             const d = item.date;
@@ -126,23 +125,26 @@ function loadUpcomingDatesAsanaAndMerge(container, deals) {
             if (item.source === 'asana') {
                 const taskNameEsc = (item.taskName || item.name || 'Task').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
                 const link = (item.permalink_url || '').replace(/"/g, '&quot;');
+                // Match the 6-column layout: Date Type | Date | Days | Deal | Stage | Location
                 return '<tr class="upcoming-date-row upcoming-date-row-asana" data-source="asana">' +
+                    '<td class="upcoming-date-type"><a href="' + link + '" target="_blank" rel="noopener noreferrer" class="upcoming-open-asana" title="Open in Asana">Asana Task</a></td>' +
                     '<td>' + formatDate(d) + '</td>' +
                     '<td>' + daysText + '</td>' +
                     '<td class="deal-name">' + taskNameEsc + '</td>' +
                     '<td>—</td>' +
                     '<td>—</td>' +
-                    '<td class="upcoming-source"><a href="' + link + '" target="_blank" rel="noopener noreferrer" class="upcoming-open-asana">Open in Asana</a></td>' +
                     '</tr>';
             }
             const nameEsc = (item.name || 'Unnamed').replace(/"/g, '&quot;');
+            const stageClass = (STAGE_CONFIG[item.stage] || STAGE_CONFIG['Prospective'] || {}).class || 'prospective';
+            // Match the 6-column layout: Date Type | Date | Days | Deal | Stage | Location
             return '<tr class="upcoming-date-row clickable" data-source="deal" data-deal-name="' + nameEsc + '" style="cursor: pointer;">' +
+                '<td class="upcoming-date-type">' + (item.dateType || 'Start date') + '</td>' +
                 '<td>' + formatDate(d) + '</td>' +
                 '<td>' + daysText + '</td>' +
                 '<td class="deal-name">' + (item.name || 'Unnamed').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>' +
-                '<td><span class="stage-badge ' + defaultStageClass + '">' + (item.stage || '—') + '</span></td>' +
+                '<td><span class="stage-badge ' + stageClass + '">' + (item.stage || '—') + '</span></td>' +
                 '<td>' + (item.location || '—').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</td>' +
-                '<td class="upcoming-source">Deal</td>' +
                 '</tr>';
         }).join('');
 

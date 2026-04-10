@@ -374,7 +374,6 @@ function getActiveFilters() {
     if (currentFilters.state) active.push({ label: 'State', value: currentFilters.state });
     if (currentFilters.bank) active.push({ label: 'Bank', value: currentFilters.bank });
     if (currentFilters.product) active.push({ label: 'Product Type', value: currentFilters.product });
-    if (currentFilters.state) active.push({ label: 'State', value: currentFilters.state });
     if (currentFilters.year) active.push({ label: 'Year', value: currentFilters.year });
     if (currentFilters.search) active.push({ label: 'Search', value: currentFilters.search });
     const dateAddedLabels = { '3m': 'Last 3 months', '6m': 'Last 6 months', '1y': 'Last 1 year', '2y': 'Last 2 years' };
