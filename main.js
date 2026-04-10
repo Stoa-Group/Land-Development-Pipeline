@@ -43,7 +43,7 @@ import {
 } from './modules/ui/filters.js';
 import {
     renderDealRow, renderDealRowCompact, renderStageGroup,
-    renderDealListByLocation, renderDealListByStage, renderDealList,
+    renderDealListFlat, renderDealListByLocation, renderDealListByStage, renderDealList,
     updateVisibleDealCount, renderMobileDealCards
 } from './modules/ui/deal-list.js';
 
@@ -119,6 +119,7 @@ window.getActiveFilters = getActiveFilters;
 window.__clearFilters = () => {
     _clearFilters();
 };
+window.clearFilters = () => { _clearFilters(); };
 window.__toggleMainStageDropdown = window.__toggleMainStageDropdown; // set by initStageFilterDropdowns
 window.__toggleOverviewStageDropdown = window.__toggleOverviewStageDropdown; // set by initStageFilterDropdowns
 
@@ -126,6 +127,7 @@ window.__toggleOverviewStageDropdown = window.__toggleOverviewStageDropdown; // 
 window.renderDealRow = renderDealRow;
 window.renderDealRowCompact = renderDealRowCompact;
 window.renderStageGroup = renderStageGroup;
+window.renderDealListFlat = renderDealListFlat;
 window.renderDealListByLocation = renderDealListByLocation;
 window.renderDealListByStage = renderDealListByStage;
 window.renderDealList = renderDealList;

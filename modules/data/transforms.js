@@ -409,12 +409,15 @@ export function calculateSummary(deals, excludeStart = true) {
     const summary = {
         total: 0, totalUnits: 0,
         byStage: {}, byLocation: {}, byBank: {}, byProductType: {}, byState: {}, byYear: {},
-        upcomingDates: []
+        upcomingDates: [],
+        pastDates: []
     };
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     deals.forEach(deal => {
         const stage = normalizeStage(deal.Stage || deal.stage);
         if (excludeStart && (stage === 'START' || stage.toLowerCase() === 'start' || stage.includes('START'))) return;
+        if (stage === 'HoldCo' || stage.toLowerCase() === 'holdco') return;
         summary.total++;
         const units = parseInt(deal['Unit Count'] || deal.unitCount || 0) || 0;
         summary.totalUnits += units;
@@ -422,33 +425,84 @@ export function calculateSummary(deals, excludeStart = true) {
         summary.byStage[stage]++;
         summary.byStage[stage + '_units'] = (summary.byStage[stage + '_units'] || 0) + units;
         const location = getDealLocation(deal) || 'Unknown';
-        if (!summary.byLocation[location]) summary.byLocation[location] = 0;
-        summary.byLocation[location]++;
+        if (!summary.byLocation[location]) summary.byLocation[location] = { count: 0, units: 0 };
+        summary.byLocation[location].count++;
+        if (units) summary.byLocation[location].units += units;
         const stateStr = getDealState(deal) || 'Unknown';
-        if (!summary.byState[stateStr]) summary.byState[stateStr] = 0;
-        summary.byState[stateStr]++;
+        if (!summary.byState[stateStr]) summary.byState[stateStr] = { count: 0, units: 0 };
+        summary.byState[stateStr].count++;
+        if (units) summary.byState[stateStr].units += units;
         const bank = deal.Bank || deal.bank || 'Unknown';
-        if (!summary.byBank[bank]) summary.byBank[bank] = 0;
-        summary.byBank[bank]++;
+        const canonicalBank = getCanonicalBankName(bank);
+        if (!summary.byBank[canonicalBank]) summary.byBank[canonicalBank] = 0;
+        summary.byBank[canonicalBank]++;
         const product = getDealProductType(deal) || 'Unknown';
         if (!summary.byProductType[product]) summary.byProductType[product] = 0;
         summary.byProductType[product]++;
-        const startDate = deal['Start Date'] || deal.startDate || deal['Start Date Custom'] || deal.dueon || deal.due_on;
-        if (startDate) {
+
+        // Collect all date fields for timeline (matches app-overview.js calculateSummary)
+        const dateFields = [
+            { key: 'Start Date', alt: 'startDate', dateType: 'Start date' },
+            { key: 'ExecutionDate', alt: null, dateType: 'Execution' },
+            { key: 'DueDiligenceDate', alt: null, dateType: 'Due Diligence' },
+            { key: 'ClosingDate', alt: null, dateType: 'Closing' },
+            { key: 'ConstructionLoanClosingDate', alt: null, dateType: 'Construction Loan Closing' }
+        ];
+        for (const f of dateFields) {
+            const val = deal[f.key] || (f.alt && deal[f.alt]);
+            if (!val) continue;
             try {
-                const d = new Date(startDate);
-                if (!isNaN(d.getTime())) {
+                const d = new Date(val);
+                if (isNaN(d.getTime())) continue;
+                const dateItem = {
+                    name: deal.Name || deal.name || 'Unknown',
+                    date: d,
+                    dateType: f.dateType,
+                    stage: stage,
+                    location: getDealLocation(deal),
+                    units: deal['Unit Count'] || deal.unitCount,
+                    bank: deal.Bank || deal.bank
+                };
+                const dateOnly = new Date(d);
+                dateOnly.setHours(0, 0, 0, 0);
+                if (dateOnly >= today) {
+                    summary.upcomingDates.push(dateItem);
+                } else {
+                    summary.pastDates.push(dateItem);
+                }
+                // Also track by year (use first date field only for year counting)
+                if (f.key === 'Start Date' || f.alt === 'startDate') {
                     const yr = d.getFullYear().toString();
                     if (!summary.byYear[yr]) summary.byYear[yr] = 0;
                     summary.byYear[yr]++;
-                    if (d >= today) {
-                        summary.upcomingDates.push({ date: d, name: deal.Name || deal.name || 'Unknown', stage });
-                    }
                 }
             } catch (e) {}
         }
+        // Fallback: if no standard date fields, try custom/Asana dates for year tracking
+        if (!deal['Start Date'] && !deal.startDate) {
+            const fallbackDate = deal['Start Date Custom'] || deal.dueon || deal.due_on;
+            if (fallbackDate) {
+                try {
+                    const d = new Date(fallbackDate);
+                    if (!isNaN(d.getTime())) {
+                        const yr = d.getFullYear().toString();
+                        if (!summary.byYear[yr]) summary.byYear[yr] = 0;
+                        summary.byYear[yr]++;
+                    }
+                } catch (e) {}
+            }
+        }
     });
     summary.upcomingDates.sort((a, b) => a.date - b.date);
+    if (summary.upcomingDates.length > 100) {
+        summary.upcomingDates = summary.upcomingDates.slice(0, 100);
+    }
+    summary.pastDates.sort((a, b) => b.date - a.date);
+    // Remove START/HoldCo from byStage
+    delete summary.byStage['START'];
+    delete summary.byStage['START_units'];
+    delete summary.byStage['HoldCo'];
+    delete summary.byStage['HoldCo_units'];
     return summary;
 }
 

@@ -139,7 +139,12 @@ async function switchView(view, deals) {
             break;
         case 'timeline':
             // Year filter applied in renderTimeline (by card date); auto-scroll to current or selected year
-            container.innerHTML = renderTimeline(deals);
+            try {
+                container.innerHTML = renderTimeline(deals);
+            } catch (e) {
+                console.error('Timeline render error:', e);
+                container.innerHTML = '<div class="error-state"><p class="error-message">Timeline failed to render. ' + (e.message || '') + '</p></div>';
+            }
             setupDrillDownHandlers();
             
             // Auto-scroll to current year after rendering (similar to list view)

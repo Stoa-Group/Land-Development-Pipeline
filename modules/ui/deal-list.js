@@ -152,6 +152,39 @@ export function renderDealListByStage(deals) {
     }).join('');
 }
 
+/* ---------- Flat list (no grouping) ---------- */
+
+export function renderDealListFlat(deals) {
+    const container = document.getElementById('deal-list-container');
+    const filtered = applyFilters(deals, true);
+    const sortConfig = window.listViewSort || { by: 'date', order: 'asc' };
+    const sorted = [...filtered].sort((a, b) => sortDeal(a, b, sortConfig));
+
+    if (sorted.length === 0) {
+        container.innerHTML = `${renderActiveFilters()}<div class="empty-state"><div class="empty-state-text">No deals found</div><div class="empty-state-subtext">Try adjusting your filters</div></div>`;
+        return;
+    }
+
+    container.innerHTML = `${renderActiveFilters()}
+        <table class="deal-table list-view-table">
+            <thead><tr>
+                <th class="sortable-header" data-sort-by="name" data-sort-order="${sortConfig.by === 'name' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Name${sortConfig.by === 'name' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="stage" data-sort-order="${sortConfig.by === 'stage' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Stage${sortConfig.by === 'stage' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="units" data-sort-order="${sortConfig.by === 'units' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Units${sortConfig.by === 'units' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="date" data-sort-order="${sortConfig.by === 'date' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Start Date${sortConfig.by === 'date' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="bank" data-sort-order="${sortConfig.by === 'bank' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Bank${sortConfig.by === 'bank' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="product" data-sort-order="${sortConfig.by === 'product' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Product Type${sortConfig.by === 'product' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="location" data-sort-order="${sortConfig.by === 'location' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Location${sortConfig.by === 'location' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="yoc" data-sort-order="${sortConfig.by === 'yoc' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">YoC${sortConfig.by === 'yoc' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="dateAdded" data-sort-order="${sortConfig.by === 'dateAdded' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Date Added${sortConfig.by === 'dateAdded' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th class="sortable-header" data-sort-by="updated" data-sort-order="${sortConfig.by === 'updated' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Updated${sortConfig.by === 'updated' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
+                <th>Notes</th>
+                <th>Actions</th>
+            </tr></thead>
+            <tbody>${sorted.map(d => renderDealRow(d)).join('')}</tbody>
+        </table>`;
+}
+
 /* ---------- Main deal list ---------- */
 
 export async function renderDealList(deals) {
@@ -160,15 +193,12 @@ export async function renderDealList(deals) {
         container.innerHTML = `<div class="empty-state"><img src="Logos/STOA20-Logo-Mark-Grey.jpg" alt="STOA" class="stoa-logo" /><div class="empty-state-text">No deals found</div><div class="empty-state-subtext">Try adjusting your filters</div></div>`;
         return;
     }
+    // Hide the grouping toggle — list view is now a flat table
     const toggle = document.getElementById('list-view-toggle');
-    if (toggle && state.currentView === 'list') {
-        toggle.style.display = 'flex';
-        toggle.querySelectorAll('.toggle-btn').forEach(btn => { btn.classList.toggle('active', btn.dataset.mode === state.listViewMode); });
-    }
-    if (state.listViewMode === 'location') renderDealListByLocation(deals);
-    else if (state.listViewMode === 'stage') renderDealListByStage(deals);
-    else if (state.listViewMode === 'product' && typeof window.__renderByProductType === 'function') container.innerHTML = window.__renderByProductType(deals);
-    else if (state.listViewMode === 'bank' && typeof window.__renderByBank === 'function') container.innerHTML = await window.__renderByBank(deals);
+    if (toggle) toggle.style.display = 'none';
+
+    // Always render a flat list — filters from the grey bar control what's shown
+    renderDealListFlat(deals);
     if (typeof window.__setupDrillDownHandlers === 'function') window.__setupDrillDownHandlers();
 }
 
