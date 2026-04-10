@@ -813,7 +813,9 @@ function showDealDetail(deal) {
     
     document.body.appendChild(modal);
     document.body.classList.add('deal-modal-open');
-    
+    modal.scrollTop = 0;
+    window.scrollTo({ top: 0, behavior: 'instant' });
+
     const dealPipelineId = deal.DealPipelineId || deal._original?.DealPipelineId;
     const filesSection = modal.querySelector('#deal-detail-files-section');
     const filesMessageEl = modal.querySelector('#deal-detail-files-message');

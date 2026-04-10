@@ -181,6 +181,8 @@ window.openDealEditModal = async function(deal) {
     editStageSelect.addEventListener('change', editStageSelect._toggleRejectionReason);
     
     modal.style.display = 'flex';
+    modal.scrollTop = 0;
+    window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 function calculatePricePerUnit() {

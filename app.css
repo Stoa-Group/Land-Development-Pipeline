@@ -5208,9 +5208,10 @@ body.map-fullscreen-active {
     bottom: 0;
     background-color: rgba(0, 0, 0, 0.5);
     z-index: 1000;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    padding: 20px;
+    padding: 48px 20px 20px;
+    overflow-y: auto;
     animation: modal-backdrop-in 0.2s ease;
 }
 
@@ -6936,7 +6937,7 @@ a:focus-visible {
     
     .deal-detail-modal.modal-overlay {
         padding: 16px;
-        align-items: center;
+        align-items: flex-start;
     }
     
     /* Timeline horizontal scroll with snap */
