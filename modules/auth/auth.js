@@ -30,12 +30,16 @@ export function updateAuthUI() {
             updateOtherAdminsViewingUI([]);
             startPresence();
         }
+        // Start notification polling when authenticated
+        if (typeof window.initNotificationPolling === 'function') window.initNotificationPolling();
     } else {
         if (adminBadge) adminBadge.style.display = 'none';
         if (dealPipelineBtn) dealPipelineBtn.style.display = 'none';
         if (editModeBtn) editModeBtn.style.display = 'none';
         if (otherAdminsEl) otherAdminsEl.style.display = 'none';
         stopPresence();
+        // Stop notification polling when logged out
+        if (typeof window.stopNotificationPolling === 'function') window.stopNotificationPolling();
         state.isEditMode = false;
         updateEditModeUI();
         document.body.classList.remove('deal-pipeline-open');

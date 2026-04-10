@@ -7587,3 +7587,205 @@ a:focus-visible {
         height: 240px;
     }
 }
+
+/* ============================================================
+   Activity Timeline (Deal Detail History tab)
+   ============================================================ */
+.activity-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 8px 0;
+}
+.activity-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-left: 2px solid var(--border-color);
+    margin-left: 16px;
+    padding-left: 16px;
+    position: relative;
+}
+.activity-item:last-child {
+    border-left-color: transparent;
+}
+.activity-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    position: absolute;
+    left: -17px;
+    top: 8px;
+}
+.activity-icon-stage_change { background: #ede9fe; border-color: #8b5cf6; }
+.activity-icon-field_update { background: #dbeafe; border-color: #3b82f6; }
+.activity-icon-note { background: #fef3c7; border-color: #f59e0b; }
+.activity-icon-created { background: #d1fae5; border-color: #10b981; }
+.activity-icon-deleted { background: #fee2e2; border-color: #ef4444; }
+.activity-icon-call { background: #e0e7ff; border-color: #6366f1; }
+.activity-icon-email { background: #dbeafe; border-color: #2563eb; }
+.activity-icon-meeting { background: #fce7f3; border-color: #ec4899; }
+.activity-icon-file_upload { background: #f3e8ff; border-color: #a855f7; }
+.activity-icon-asana_sync { background: #ecfdf5; border-color: #059669; }
+.activity-content {
+    flex: 1;
+    min-width: 0;
+    padding-left: 20px;
+}
+.activity-description {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+.activity-description strong {
+    font-weight: 600;
+}
+.activity-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+.activity-timeline-loading,
+.activity-timeline-empty {
+    padding: 16px 0;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+.deal-detail-history-toggle {
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.deal-detail-history-arrow {
+    transition: transform 0.2s ease;
+    display: inline-block;
+}
+
+/* ============================================================
+   Notification Bell
+   ============================================================ */
+.notification-bell-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-right: 8px;
+}
+.notification-bell-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    position: relative;
+    padding: 6px;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+.notification-bell-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+.notification-badge {
+    position: absolute;
+    top: 2px;
+    right: 0;
+    background: #ef4444;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    line-height: 1;
+}
+.notification-panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    width: 320px;
+    max-height: 400px;
+    background: var(--white);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    z-index: 9999;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.notification-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+.notification-mark-all {
+    background: none;
+    border: none;
+    color: var(--primary-green);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+.notification-mark-all:hover {
+    background: var(--bg-secondary);
+}
+.notification-panel-body {
+    overflow-y: auto;
+    flex: 1;
+    max-height: 340px;
+}
+.notification-empty {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+.notification-item {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--bg-secondary);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.notification-item:hover {
+    background: var(--hover-bg);
+}
+.notification-unread {
+    background: #f0f7ff;
+    border-left: 3px solid var(--primary-green);
+}
+.notification-item-text {
+    font-size: 0.8125rem;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+.notification-item-time {
+    font-size: 0.6875rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+@media (max-width: 480px) {
+    .notification-panel {
+        width: calc(100vw - 32px);
+        right: -8px;
+    }
+}

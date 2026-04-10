@@ -90,6 +90,120 @@ window.openExternalUrl = function(url) {
   }
 };
 
+// ============================================================
+// RBAC — Role-based access control helpers
+// ============================================================
+
+window.getUserRole = function() {
+  try {
+    // Try the live state first (set by main.js after auth verify)
+    if (typeof currentUser !== 'undefined' && currentUser && currentUser.role) return currentUser.role;
+    // Fallback: check localStorage
+    var user = JSON.parse(localStorage.getItem('user') || '{}');
+    return user.role || 'ReadOnly';
+  } catch(e) { return 'ReadOnly'; }
+};
+
+window.isAdmin = function() { return getUserRole() === 'Admin'; };
+window.canEdit = function() { return ['Admin', 'Editor'].includes(getUserRole()); };
+
+// ============================================================
+// Notification bell
+// ============================================================
+
+window._notificationPollTimer = null;
+
+window.toggleNotificationPanel = function() {
+  var panel = document.getElementById('notification-panel');
+  if (!panel) return;
+  var isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) loadNotifications();
+};
+
+window.loadNotifications = function() {
+  if (typeof API === 'undefined' || typeof API.getNotifications !== 'function') return;
+  API.getNotifications().then(function(res) {
+    var items = (res && res.data) || (Array.isArray(res) ? res : []);
+    var badge = document.getElementById('notification-badge');
+    var body = document.getElementById('notification-panel-body');
+    var unread = items.filter(function(n) { return !n.read && !n.isRead; });
+    if (badge) {
+      badge.textContent = unread.length;
+      badge.style.display = unread.length > 0 ? 'inline-flex' : 'none';
+    }
+    if (!body) return;
+    if (items.length === 0) {
+      body.innerHTML = '<div class="notification-empty">No notifications</div>';
+      return;
+    }
+    var html = '';
+    items.forEach(function(n) {
+      var isRead = n.read || n.isRead;
+      var timeStr = '';
+      if (n.createdAt || n.timestamp) {
+        try {
+          var d = new Date(n.createdAt || n.timestamp);
+          var now = new Date();
+          var diffMs = now - d;
+          var mins = Math.floor(diffMs / 60000);
+          if (mins < 60) timeStr = mins + 'm ago';
+          else if (mins < 1440) timeStr = Math.floor(mins / 60) + 'h ago';
+          else timeStr = Math.floor(mins / 1440) + 'd ago';
+        } catch(e) {}
+      }
+      html += '<div class="notification-item' + (isRead ? '' : ' notification-unread') + '" data-notification-id="' + (n.id || n.notificationId || '') + '">' +
+        '<div class="notification-item-text">' + (typeof escapeHtml === 'function' ? escapeHtml(n.message || n.title || '') : (n.message || n.title || '')) + '</div>' +
+        (timeStr ? '<div class="notification-item-time">' + timeStr + '</div>' : '') +
+        '</div>';
+    });
+    body.innerHTML = html;
+    // Click to mark single notification read
+    body.querySelectorAll('.notification-item').forEach(function(el) {
+      el.addEventListener('click', function() {
+        var nId = el.getAttribute('data-notification-id');
+        if (nId && typeof API.markNotificationRead === 'function') {
+          API.markNotificationRead(nId).then(function() { loadNotifications(); }).catch(function() {});
+        }
+      });
+    });
+  }).catch(function() {});
+};
+
+window.markAllNotificationsRead = function() {
+  if (typeof API === 'undefined' || typeof API.markAllNotificationsRead !== 'function') return;
+  API.markAllNotificationsRead().then(function() {
+    loadNotifications();
+    if (typeof showToast === 'function') showToast('All notifications marked as read', 'success');
+  }).catch(function(err) {
+    if (typeof showToast === 'function') showToast('Failed to mark notifications read', 'error');
+  });
+};
+
+window.initNotificationPolling = function() {
+  // Show bell only when authenticated
+  var bellWrap = document.getElementById('notification-bell');
+  if (bellWrap) bellWrap.style.display = '';
+  loadNotifications();
+  if (window._notificationPollTimer) clearInterval(window._notificationPollTimer);
+  window._notificationPollTimer = setInterval(loadNotifications, 60000);
+};
+
+window.stopNotificationPolling = function() {
+  if (window._notificationPollTimer) { clearInterval(window._notificationPollTimer); window._notificationPollTimer = null; }
+  var bellWrap = document.getElementById('notification-bell');
+  if (bellWrap) bellWrap.style.display = 'none';
+};
+
+// Close notification panel when clicking outside
+document.addEventListener('click', function(e) {
+  var bellWrap = document.getElementById('notification-bell');
+  var panel = document.getElementById('notification-panel');
+  if (panel && bellWrap && panel.style.display !== 'none' && !bellWrap.contains(e.target)) {
+    panel.style.display = 'none';
+  }
+});
+
 // Delegate click handler: intercept all external Asana links in Domo's sandbox
 document.addEventListener('click', function(e) {
   var link = e.target.closest('a[target="_blank"]');

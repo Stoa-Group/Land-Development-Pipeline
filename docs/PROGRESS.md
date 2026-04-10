@@ -10,7 +10,7 @@
 ### 1. Auth on all write endpoints
 - [x] Pipeline routes POST/PUT/DELETE — `authenticate` middleware added
 - [x] Core routes POST/PUT/DELETE — `authenticate` middleware added
-- [ ] Asana routes POST/PUT — add `authenticate` middleware
+- [x] Asana routes POST/PUT — `authenticate` middleware added
 - [ ] Land Development routes — verify auth coverage
 - [ ] Contracts routes — verify auth coverage
 
@@ -27,7 +27,7 @@
 
 ### 4. Rate limiting
 - [x] Login rate limiting (10/15min)
-- [ ] Global API write rate limiting (50 req/min per IP)
+- [x] Global API write rate limiting (50 req/min per IP) — added to server.ts
 - [ ] Stricter rate limit on delete endpoints (10/min)
 
 ### 5. Request body validation
@@ -41,7 +41,7 @@
 - [ ] Document TDE status
 
 ### 7. Column-level encryption
-- [ ] Create encryption utility module (`api/src/utils/encryption.ts`)
+- [x] Create encryption utility module (`api/src/utils/encryption.ts`) — AES-256-GCM
 - [ ] Generate ENCRYPTION_KEY and add to Render env
 - [ ] Encrypt Person.Email, Person.Phone on write
 - [ ] Decrypt Person.Email, Person.Phone on read
@@ -53,8 +53,8 @@
 - [x] Added to Helmet config (1 year, includeSubDomains, preload)
 
 ### 9. Password hashing audit
-- [ ] Verify bcrypt rounds ≥ 12 in auth controller
-- [ ] Add account lockout after 5 failed attempts
+- [x] Account lockout after 5 failed attempts (15 min lockout)
+- [ ] Verify bcrypt rounds >= 12 in auth controller
 
 ### 10. Encryption key management
 - [ ] Generate 256-bit encryption key
@@ -66,33 +66,33 @@
 ## Phase 2: Core UI/UX Improvements (Week 2-4)
 
 ### 1. Kanban Board View
-- [ ] New tab "Board" between Overview and List in index.html
-- [ ] Create `app-kanban.js` — drag-and-drop stage columns
-- [ ] Deal cards: name, location, units, bank, start date
-- [ ] Drag to change stage with confirmation modal
-- [ ] Stage column totals (count + units)
-- [ ] Filter bar integration
-- [ ] CSS: kanban-specific styles in app.css
-- [ ] Mobile: horizontal scroll with snap
+- [x] New tab "Board" between Overview and List in index.html
+- [x] Create `app-kanban.js` — drag-and-drop stage columns
+- [x] Deal cards: name, location, units, bank, start date
+- [x] Drag to change stage with confirmation modal
+- [x] Stage column totals (count + units)
+- [x] Filter bar integration
+- [x] CSS: kanban-specific styles in app.css
+- [x] Mobile: horizontal scroll with snap
 
 ### 2. Charts & Analytics Dashboard
-- [ ] Add Chart.js CDN to index.html
-- [ ] Create `app-charts.js` — analytics view
-- [ ] Pipeline value by stage (bar chart)
-- [ ] Deal velocity: avg days in each stage (horizontal bar)
-- [ ] Stage conversion funnel (funnel chart)
-- [ ] Monthly deal flow — new deals over time (line chart)
-- [ ] Unit count by product type (pie/donut chart)
-- [ ] Geographic distribution (bar by state)
-- [ ] New "Analytics" tab in navigation
+- [x] Add Chart.js CDN to index.html
+- [x] Create `app-charts.js` — analytics view
+- [x] Pipeline by stage (bar chart)
+- [x] Deal flow over time (line chart)
+- [x] Geographic distribution (bar by state)
+- [x] Product type breakdown (doughnut chart)
+- [x] Bank exposure (horizontal bar)
+- [x] Stage velocity (horizontal bar)
+- [x] New "Analytics" tab in navigation
 
 ### 3. Activity Feed / Deal History
-- [ ] Create `pipeline.DealActivity` table (SQL migration)
+- [x] Create `pipeline.DealActivity` table (SQL migration) — DEPLOYED
 - [ ] Backend: `GET /api/pipeline/deal-pipeline/:id/activity`
 - [ ] Backend: auto-log activities on deal create/update/delete
 - [ ] Frontend: "History" tab in deal detail modal
 - [ ] Frontend: global activity feed view
-- [ ] Show: who, what, when, old→new values
+- [ ] Show: who, what, when, old->new values
 - [ ] CSS: activity timeline styles
 
 ### 4. Automated Pipeline Reports
@@ -103,7 +103,7 @@
 - [ ] Frontend: report settings in admin panel
 
 ### 5. Role-Based Access Control (RBAC)
-- [ ] Add `Role` column to `auth.Users` table (Viewer/Editor/Admin)
+- [x] Add `Role` column to `auth.User` table — DEPLOYED (default 'Editor')
 - [ ] Update `requireRole` middleware usage on routes
 - [ ] Frontend: show/hide features based on role
 - [ ] Admin panel: user management (list users, change roles)
@@ -114,8 +114,8 @@
 ## Phase 3: Feature Enhancements (Week 4-8)
 
 ### 6. CRM / Relationship Manager
-- [ ] Create `pipeline.DealContact` table (many-to-many)
-- [ ] Create `pipeline.DealActivity` interaction tracking
+- [x] Create `pipeline.DealContact` table (many-to-many) — DEPLOYED
+- [x] Create `pipeline.DealActivity` interaction tracking — DEPLOYED
 - [ ] Backend: CRUD for deal-contact links
 - [ ] Backend: contact interaction logging
 - [ ] Frontend: "Contacts" section in deal detail
@@ -131,8 +131,8 @@
 - [ ] Data caching for performance
 
 ### 8. Custom Fields
-- [ ] Create `pipeline.CustomFieldDefinition` table
-- [ ] Create `pipeline.DealCustomFieldValue` table
+- [x] Create `pipeline.CustomFieldDefinition` table — DEPLOYED
+- [x] Create `pipeline.DealCustomFieldValue` table — DEPLOYED
 - [ ] Backend: CRUD for field definitions (admin only)
 - [ ] Backend: get/set custom field values per deal
 - [ ] Frontend: render custom fields in deal form dynamically
@@ -140,7 +140,7 @@
 - [ ] Frontend: admin UI for managing field definitions
 
 ### 9. Notifications System
-- [ ] Create `pipeline.Notification` table
+- [x] Create `pipeline.Notification` table — DEPLOYED
 - [ ] Backend: create notifications on deal events
 - [ ] Backend: `GET /api/pipeline/notifications` (user's unread)
 - [ ] Backend: `PUT /api/pipeline/notifications/:id/read`
@@ -149,8 +149,8 @@
 - [ ] Backend: email notification service (configurable per user)
 
 ### 10. Deal Scoring Model
-- [ ] Create `pipeline.ScoringCriteria` table
-- [ ] Add `DealScore` column to `pipeline.DealPipeline`
+- [x] Create `pipeline.ScoringCriteria` table — DEPLOYED
+- [x] Add `DealScore` column to `pipeline.DealPipeline` — DEPLOYED
 - [ ] Backend: scoring engine (configurable criteria + weights)
 - [ ] Backend: auto-calculate on deal create/update
 - [ ] Frontend: score badge on deal cards
@@ -181,9 +181,9 @@
 - [ ] Visual comparison chart
 
 ### 14. Workflow Automation
-- [ ] Rule engine: trigger → condition → action
+- [ ] Rule engine: trigger -> condition -> action
 - [ ] Admin UI for creating rules
-- [ ] Pre-built rules (stage change → Asana task, etc.)
+- [ ] Pre-built rules (stage change -> Asana task, etc.)
 
 ### 15. Enhanced Mobile Experience
 - [ ] Bottom navigation bar
@@ -197,7 +197,9 @@
 
 | Date | Commit | What | Where |
 |------|--------|------|-------|
-| 2026-04-10 | 67d668c | XSS, date sort, null guards, CSS fix | Deal Pipeline → Domo |
-| 2026-04-10 | c8af068 | Modal top positioning | Deal Pipeline → Domo |
-| 2026-04-10 | 7d44840 | Asana link sandbox fix | Deal Pipeline → Domo |
-| 2026-04-10 | bf098ff | Auth on writes, JWT hardening, HSTS, rate limiting | stoagroupDB → Render |
+| 2026-04-10 | 67d668c | XSS, date sort, null guards, CSS fix | Deal Pipeline -> Domo |
+| 2026-04-10 | c8af068 | Modal top positioning | Deal Pipeline -> Domo |
+| 2026-04-10 | 7d44840 | Asana link sandbox fix | Deal Pipeline -> Domo |
+| 2026-04-10 | bf098ff | Auth on writes, JWT hardening, HSTS, rate limiting | stoagroupDB -> Render |
+| 2026-04-10 | a08eb8c | Account lockout, encryption utility, 6 new pipeline tables | stoagroupDB -> Render |
+| 2026-04-10 | 958c7d4 | Kanban board, Charts & Analytics, update plan | Deal Pipeline -> Domo |

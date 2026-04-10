@@ -5,6 +5,28 @@
 
 /* jshint esversion: 11 */
 
+/** Format a date string as relative time (e.g. "2 hours ago", "3 days ago") */
+function _formatRelativeTime(dateStr) {
+    if (!dateStr) return '';
+    try {
+        var d = new Date(dateStr);
+        var now = new Date();
+        var diffMs = now - d;
+        if (diffMs < 0) return new Date(dateStr).toLocaleDateString();
+        var secs = Math.floor(diffMs / 1000);
+        if (secs < 60) return 'just now';
+        var mins = Math.floor(secs / 60);
+        if (mins < 60) return mins + ' minute' + (mins !== 1 ? 's' : '') + ' ago';
+        var hours = Math.floor(mins / 60);
+        if (hours < 24) return hours + ' hour' + (hours !== 1 ? 's' : '') + ' ago';
+        var days = Math.floor(hours / 24);
+        if (days < 30) return days + ' day' + (days !== 1 ? 's' : '') + ' ago';
+        var months = Math.floor(days / 30);
+        if (months < 12) return months + ' month' + (months !== 1 ? 's' : '') + ' ago';
+        return new Date(dateStr).toLocaleDateString();
+    } catch (e) { return String(dateStr); }
+}
+
 function buildAsanaOtherFieldsSection(modal, deal, matchedTask, asanaUrl, isAdmin) {
     var container = modal && modal.querySelector('#deal-detail-asana-other-fields-content');
     if (!container || !matchedTask || typeof API === 'undefined' || !API.updateAsanaTaskCustomField) return;
@@ -579,7 +601,7 @@ function showDealDetail(deal) {
                 </div>
                 <h2>${escapeHtml(deal.Name || deal.name || 'Unnamed Deal')}</h2>
                 <div class="deal-detail-header-actions">
-                    ${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '<button type="button" class="deal-detail-edit-btn deal-edit-btn-small" aria-label="Edit deal">Edit</button>' : ''}
+                    ${(typeof canEdit === 'function' ? canEdit() : (typeof isAuthenticated !== 'undefined' && isAuthenticated)) ? '<button type="button" class="deal-detail-edit-btn deal-edit-btn-small" aria-label="Edit deal">Edit</button>' : ''}
                     <button class="deal-detail-close" aria-label="Close">&times;</button>
                 </div>
             </div>
@@ -807,6 +829,12 @@ function showDealDetail(deal) {
                     </div>
                 </div>
                 ` : ''}
+                <div class="deal-detail-section deal-detail-history-section">
+                    <h3 class="deal-detail-history-toggle" style="cursor:pointer;">History <span class="deal-detail-history-arrow" style="font-size:0.8em;">&#9654;</span></h3>
+                    <div class="deal-detail-history-content" id="deal-detail-history-content" style="display:none;">
+                        <div class="activity-timeline-loading">Loading activity...</div>
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -888,8 +916,8 @@ function showDealDetail(deal) {
         try {
             var res = await API.listDealPipelineAttachments(dealPipelineId);
             var list = res.data || [];
-            var canEdit = typeof isAuthenticated !== 'undefined' && isAuthenticated;
-            var emptyMsg = canEdit ? 'No files attached. Upload using the button above.' : 'No files attached.';
+            var canEditFiles = (typeof window.canEdit === 'function' ? window.canEdit() : (typeof isAuthenticated !== 'undefined' && isAuthenticated));
+            var emptyMsg = canEditFiles ? 'No files attached. Upload using the button above.' : 'No files attached.';
             if (list.length === 0) {
                 sectionKeys.forEach(function (k) {
                     if (listElsBySection[k]) listElsBySection[k].innerHTML = '<span class="deal-detail-files-empty">' + (k === 'Other' ? emptyMsg : 'No files in this section.') + '</span>';
@@ -1086,17 +1114,17 @@ function showDealDetail(deal) {
                     var versionCount = versions.length;
                     var sizeKb = (latest.FileSizeBytes / 1024).toFixed(1);
                     var dateStr = latest.CreatedAt ? formatDate(latest.CreatedAt) : '—';
-                    var deleteBtn = canEdit
+                    var deleteBtn = canEditFiles
                         ? '<button type="button" class="deal-detail-file-delete" data-attachment-id="' + latest.DealPipelineAttachmentId + '" title="Delete (admin only)">Delete</button>'
                         : '<span class="deal-detail-file-delete-disabled" title="Only admins can delete files.">Delete (admin only)</span>';
-                    var renameBtn = canEdit
+                    var renameBtn = canEditFiles
                         ? '<button type="button" class="deal-detail-file-rename-btn" data-attachment-id="' + latest.DealPipelineAttachmentId + '" data-file-name="' + (latest.FileName || '').replace(/"/g, '&quot;') + '" title="Rename">Rename</button>'
                         : '';
                     var fileName = (latest.FileName || 'File').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     var fileNameAttr = (latest.FileName || '').replace(/"/g, '&quot;');
                     var downloadFileNameAttr = downloadFileNamePrefix + fileNameAttr;
                     var versionLabel = versionCount > 1 ? ' <span class="deal-detail-file-version-badge">Version ' + versionCount + ' (current)</span>' : '';
-                    var uploadNewVersionBtn = canEdit
+                    var uploadNewVersionBtn = canEditFiles
                         ? ' <button type="button" class="deal-detail-file-upload-version-btn" data-parent-id="' + latest.DealPipelineAttachmentId + '" title="Upload new version">Upload new version</button>'
                         : '';
                     var viewableLatest = isViewableFile(latest.FileName, latest.ContentType);
@@ -1246,7 +1274,58 @@ function showDealDetail(deal) {
     }
     
     loadDealDetailAsanaDiscrepancy(modal, deal);
-    
+
+    // History toggle and lazy-load
+    var historyToggle = modal.querySelector('.deal-detail-history-toggle');
+    var historyContent = modal.querySelector('#deal-detail-history-content');
+    var historyLoaded = false;
+    if (historyToggle && historyContent) {
+        historyToggle.addEventListener('click', function() {
+            var isOpen = historyContent.style.display !== 'none';
+            historyContent.style.display = isOpen ? 'none' : 'block';
+            var arrow = historyToggle.querySelector('.deal-detail-history-arrow');
+            if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
+            if (!isOpen && !historyLoaded) {
+                historyLoaded = true;
+                var dealId = deal.DealPipelineId || (deal._original && deal._original.DealPipelineId);
+                if (dealId && typeof API !== 'undefined' && typeof API.getDealActivity === 'function') {
+                    API.getDealActivity(dealId).then(function(res) {
+                        var items = (res && res.data) || (Array.isArray(res) ? res : []);
+                        if (!items.length) {
+                            historyContent.innerHTML = '<div class="activity-timeline-empty">No activity recorded for this deal.</div>';
+                            return;
+                        }
+                        var ACTIVITY_ICONS = { stage_change: '\u2197', field_update: '\u270F', note: '\uD83D\uDCDD', created: '\u2728', deleted: '\uD83D\uDDD1', call: '\uD83D\uDCDE', email: '\u2709', meeting: '\uD83E\uDD1D', file_upload: '\uD83D\uDCCE', asana_sync: '\uD83D\uDD04' };
+                        var html = '<div class="activity-timeline">';
+                        items.forEach(function(item) {
+                            var icon = ACTIVITY_ICONS[item.type || item.activityType] || '\u270F';
+                            var iconClass = 'activity-icon-' + (item.type || item.activityType || 'field_update');
+                            var desc = escapeHtml(item.description || item.message || '');
+                            var meta = '';
+                            if (item.user || item.userEmail || item.createdBy) meta += 'by ' + escapeHtml(item.user || item.userEmail || item.createdBy);
+                            if (item.createdAt || item.timestamp) {
+                                if (meta) meta += ' \u00B7 ';
+                                meta += _formatRelativeTime(item.createdAt || item.timestamp);
+                            }
+                            html += '<div class="activity-item">' +
+                                '<div class="activity-icon ' + iconClass + '">' + icon + '</div>' +
+                                '<div class="activity-content">' +
+                                    '<div class="activity-description">' + desc + '</div>' +
+                                    (meta ? '<div class="activity-meta">' + meta + '</div>' : '') +
+                                '</div></div>';
+                        });
+                        html += '</div>';
+                        historyContent.innerHTML = html;
+                    }).catch(function(err) {
+                        historyContent.innerHTML = '<div class="activity-timeline-empty">Could not load activity: ' + escapeHtml(err.message || 'Unknown error') + '</div>';
+                    });
+                } else {
+                    historyContent.innerHTML = '<div class="activity-timeline-empty">Activity tracking not available for this deal.</div>';
+                }
+            }
+        });
+    }
+
     // Previous/Next deal navigation
     if (nav.prev) {
         modal.querySelector('.deal-detail-prev').addEventListener('click', function() {

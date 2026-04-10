@@ -123,7 +123,7 @@ function _kanbanCardHtml(deal) {
     var startDate = deal['Start Date'] || deal.startDate || '';
     var formattedDate = startDate ? formatDate(startDate) : '';
     var dealPipelineId = deal.DealPipelineId || deal.dealPipelineId || deal.id || '';
-    var isAdmin = typeof isAuthenticated !== 'undefined' && isAuthenticated && typeof isEditMode !== 'undefined' && isEditMode;
+    var isAdmin = (typeof canEdit === 'function' ? canEdit() : (typeof isAuthenticated !== 'undefined' && isAuthenticated)) && (typeof isEditMode !== 'undefined' && isEditMode);
 
     return '<div class="kanban-card" ' +
         'data-deal-pipeline-id="' + escapeHtml(String(dealPipelineId)) + '" ' +
