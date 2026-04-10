@@ -577,7 +577,7 @@ function showDealDetail(deal) {
                     <span class="deal-detail-nav-position">${navPosition}</span>
                     <button type="button" class="deal-detail-nav-btn deal-detail-next" ${nav.next ? '' : ' disabled'} aria-label="Next deal">Next ›</button>
                 </div>
-                <h2>${deal.Name || deal.name || 'Unnamed Deal'}</h2>
+                <h2>${escapeHtml(deal.Name || deal.name || 'Unnamed Deal')}</h2>
                 <div class="deal-detail-header-actions">
                     ${typeof isAuthenticated !== 'undefined' && isAuthenticated ? '<button type="button" class="deal-detail-edit-btn deal-edit-btn-small" aria-label="Edit deal">Edit</button>' : ''}
                     <button class="deal-detail-close" aria-label="Close">&times;</button>
@@ -589,42 +589,42 @@ function showDealDetail(deal) {
                     <div class="deal-detail-grid">
                         <div class="deal-detail-item">
                             <label>Stage</label>
-                            <span class="stage-badge ${stageConfig.class}">${stage}</span>
+                            <span class="stage-badge ${stageConfig.class}">${escapeHtml(stage)}</span>
                         </div>
                         ${location ? `
                         <div class="deal-detail-item">
                             <label>Location</label>
-                            <span>${location}</span>
+                            <span>${escapeHtml(location)}</span>
                         </div>
                         ` : ''}
                         ${address ? `
                         <div class="deal-detail-item">
                             <label>Address</label>
-                            <span>${address}</span>
+                            <span>${escapeHtml(address)}</span>
                         </div>
                         ` : ''}
                         ${productType ? `
                         <div class="deal-detail-item">
                             <label>Product Type</label>
-                            <span>${productType}</span>
+                            <span>${escapeHtml(productType)}</span>
                         </div>
                         ` : ''}
                         ${units ? `
                         <div class="deal-detail-item">
                             <label>Unit Count</label>
-                            <span>${units} units</span>
+                            <span>${escapeHtml(units)} units</span>
                         </div>
                         ` : ''}
                         ${bank ? `
                         <div class="deal-detail-item">
                             <label>Bank</label>
-                            <span>${bank}</span>
+                            <span>${escapeHtml(bank)}</span>
                         </div>
                         ` : ''}
                         ${preCon ? `
                         <div class="deal-detail-item">
                             <label>Pre-Con Manager</label>
-                            <span>${preCon}</span>
+                            <span>${escapeHtml(preCon)}</span>
                         </div>
                         ` : ''}
                         ${startDate ? `
@@ -679,15 +679,15 @@ function showDealDetail(deal) {
                                 additionalFields.push(`<div class="deal-detail-item"><label>County/Parish</label><span>${(deal.CountyParish || orig.County || '').replace(/</g, '&lt;')}</span></div>`);
                             }
                             // Region (if not already shown in location)
-                            if (orig.Region && orig.Region !== location) {
+                            if (orig.Region && location && orig.Region !== location) {
                                 additionalFields.push(`<div class="deal-detail-item"><label>Region</label><span>${orig.Region}</span></div>`);
                             }
-                            
+
                             // City and State (if not already shown in location)
-                            if (orig.City && !location.includes(orig.City)) {
+                            if (orig.City && (!location || !location.includes(orig.City))) {
                                 additionalFields.push(`<div class="deal-detail-item"><label>City</label><span>${orig.City}</span></div>`);
                             }
-                            if (orig.State && !location.includes(orig.State)) {
+                            if (orig.State && (!location || !location.includes(orig.State))) {
                                 additionalFields.push(`<div class="deal-detail-item"><label>State</label><span>${orig.State}</span></div>`);
                             }
                             
@@ -1284,7 +1284,7 @@ function showNotesModal(dealName, notes) {
         <div class="notes-modal-overlay"></div>
         <div class="notes-modal-content modal-content">
             <div class="notes-modal-header">
-                <h3>${dealName}</h3>
+                <h3>${escapeHtml(dealName)}</h3>
                 <button class="notes-modal-close" aria-label="Close">&times;</button>
             </div>
             <div class="notes-modal-body">

@@ -4,6 +4,12 @@
  * Real implementations are wired by main.js after modules load.
  */
 
+// HTML escape utility — prevents XSS when interpolating user data into innerHTML
+window.escapeHtml = function(str) {
+  if (str == null) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+};
+
 // Stub: inline onclick="clearFilters()" in HTML calls this before main.js sets the real one
 window.clearFilters = function() {
   if (window.__clearFilters) window.__clearFilters();

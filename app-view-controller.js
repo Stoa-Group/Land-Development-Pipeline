@@ -194,6 +194,7 @@ async function switchView(view, deals) {
             // Check if we need to scroll to a highlighted deal
             const highlightDeal = window.highlightDealInTimeline;
             if (highlightDeal) {
+                delete window.highlightDealInTimeline;
                 // Scroll to highlighted deal after DOM is ready (after auto-scroll to current year)
                 setTimeout(() => {
                     const highlightedCard = document.querySelector(`.timeline-card[data-deal-name="${highlightDeal}"]`);

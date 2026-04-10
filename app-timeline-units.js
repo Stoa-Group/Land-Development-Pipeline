@@ -104,11 +104,8 @@ function renderTimeline(deals) {
         return parseInt(qA) - parseInt(qB);
     });
     
-    // Check if we should highlight a specific deal
+    // Check if we should highlight a specific deal (do NOT delete here; switchView reads it after render)
     const highlightDeal = window.highlightDealInTimeline;
-    if (highlightDeal) {
-        delete window.highlightDealInTimeline;
-    }
     
     // Ensure we have years to display (fallback to current year if none found)
     const yearsToDisplay = allYears.length > 0 ? allYears : [new Date().getFullYear().toString()];
@@ -146,15 +143,15 @@ function renderTimeline(deals) {
                                     const daysUntil = Math.ceil((item.date - now) / (1000 * 60 * 60 * 24));
                                     const isHighlighted = highlightDeal && item.name === highlightDeal;
                                     return `
-                                        <div class="timeline-card ${isHighlighted ? 'highlighted' : ''}" data-deal-name="${item.name}">
+                                        <div class="timeline-card ${isHighlighted ? 'highlighted' : ''}" data-deal-name="${escapeHtml(item.name)}">
                                             <div class="timeline-card-date">${formatDate(item.date)}</div>
-                                            <div class="timeline-card-name">${item.name}</div>
+                                            <div class="timeline-card-name">${escapeHtml(item.name)}</div>
                                             <div class="timeline-card-details">
-                                                <span class="stage-badge clickable ${stageConfig.class}" data-stage="${item.stage}">${item.stage}</span>
-                                                ${item.dateType ? `<span class="date-type-badge">${item.dateType}</span>` : ''}
-                                                ${item.location ? `<span class="location-badge clickable" data-location="${item.location}">${item.location}</span>` : ''}
-                                                ${item.units ? `<span class="units-info">${item.units} units</span>` : ''}
-                                                ${item.bank ? `<span class="bank-info">${item.bank}</span>` : ''}
+                                                <span class="stage-badge clickable ${stageConfig.class}" data-stage="${escapeHtml(item.stage)}">${escapeHtml(item.stage)}</span>
+                                                ${item.dateType ? `<span class="date-type-badge">${escapeHtml(item.dateType)}</span>` : ''}
+                                                ${item.location ? `<span class="location-badge clickable" data-location="${escapeHtml(item.location)}">${escapeHtml(item.location)}</span>` : ''}
+                                                ${item.units ? `<span class="units-info">${escapeHtml(item.units)} units</span>` : ''}
+                                                ${item.bank ? `<span class="bank-info">${escapeHtml(item.bank)}</span>` : ''}
                                             </div>
                                             ${daysUntil >= 0 ? 
                                                 `<div class="timeline-card-time">${daysUntil} day${daysUntil !== 1 ? 's' : ''} away</div>` :

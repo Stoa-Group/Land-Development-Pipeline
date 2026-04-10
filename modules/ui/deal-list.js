@@ -166,7 +166,7 @@ export function renderDealListFlat(deals) {
     }
 
     container.innerHTML = `${renderActiveFilters()}
-        <table class="deal-table list-view-table">
+        <table class="deal-list-table list-view-table">
             <thead><tr>
                 <th class="sortable-header" data-sort-by="name" data-sort-order="${sortConfig.by === 'name' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Name${sortConfig.by === 'name' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>
                 <th class="sortable-header" data-sort-by="stage" data-sort-order="${sortConfig.by === 'stage' && sortConfig.order === 'asc' ? 'desc' : 'asc'}">Stage${sortConfig.by === 'stage' ? (sortConfig.order === 'asc' ? ' ▲' : ' ▼') : ''}</th>

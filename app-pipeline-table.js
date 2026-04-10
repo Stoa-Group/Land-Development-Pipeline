@@ -262,7 +262,9 @@ async function renderDealPipelineTable(opts) {
             } else if (sortBy === 'date') {
                 const dateA = dealA['Start Date'] || dealA.startDate || '';
                 const dateB = dealB['Start Date'] || dealB.startDate || '';
-                cmp = (new Date(dateA) || 0) - (new Date(dateB) || 0);
+                const dA = dateA ? new Date(dateA).getTime() : 0;
+                const dB = dateB ? new Date(dateB).getTime() : 0;
+                cmp = (isNaN(dA) ? 0 : dA) - (isNaN(dB) ? 0 : dB);
             } else if (sortBy === 'city') {
                 cmp = (dealA.Location || '').localeCompare(dealB.Location || '');
             }

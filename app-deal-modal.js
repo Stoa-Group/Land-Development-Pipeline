@@ -169,13 +169,16 @@ window.openDealEditModal = async function(deal) {
     const editStageSelect = document.getElementById('edit-stage');
     const editRejectionWrap = document.getElementById('edit-rejection-reason-wrap');
     const editRejectionInput = document.getElementById('edit-rejection-reason');
-    function toggleRejectionReason() {
+    // Remove previous listener if stored, then add fresh one
+    if (editStageSelect._toggleRejectionReason) {
+        editStageSelect.removeEventListener('change', editStageSelect._toggleRejectionReason);
+    }
+    editStageSelect._toggleRejectionReason = function() {
         const isRejected = editStageSelect && editStageSelect.value === 'Rejected';
         if (editRejectionWrap) editRejectionWrap.style.display = isRejected ? 'block' : 'none';
         if (editRejectionInput && !isRejected) editRejectionInput.value = '';
-    }
-    editStageSelect.removeEventListener('change', toggleRejectionReason);
-    editStageSelect.addEventListener('change', toggleRejectionReason);
+    };
+    editStageSelect.addEventListener('change', editStageSelect._toggleRejectionReason);
     
     modal.style.display = 'flex';
 }

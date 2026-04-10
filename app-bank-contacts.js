@@ -64,8 +64,8 @@ async function renderByBank(deals) {
         return `
             <div class="stage-group">
                 <div class="stage-group-header">
-                    <span class="bank-name-clickable" data-bank-name="${bankName}" data-bank-id="${bankRecord?.BankId || ''}" style="cursor: pointer; text-decoration: underline; color: var(--primary-green);">
-                        <span class="bank-icon">Bank:</span> ${bankName}
+                    <span class="bank-name-clickable" data-bank-name="${escapeHtml(bankName)}" data-bank-id="${bankRecord?.BankId || ''}" style="cursor: pointer; text-decoration: underline; color: var(--primary-green);">
+                        <span class="bank-icon">Bank:</span> ${escapeHtml(bankName)}
                     </span>
                     <span style="margin-left: auto; opacity: 0.7;">
                         ${bankDeals.length} deals | ${totalUnits.toLocaleString()} units
@@ -114,10 +114,10 @@ async function renderByBank(deals) {
                                     const stage = normalizeStage(deal.Stage || deal.stage);
                                     const stageConfig = STAGE_CONFIG[stage] || STAGE_CONFIG['Prospective'];
                                     return `
-                                        <tr class="deal-row" data-deal-name="${deal.Name || deal.name}">
+                                        <tr class="deal-row" data-deal-name="${escapeHtml(deal.Name || deal.name)}">
                                             <td class="deal-name" data-label="Name">
                                                 ${deal.commentsCount ? `<span class="comments-count">${deal.commentsCount}</span>` : ''}
-                                                ${deal.Name || deal.name || 'Unnamed Deal'}
+                                                ${escapeHtml(deal.Name || deal.name || 'Unnamed Deal')}
                                             </td>
                                             <td class="deal-cell" data-label="Stage">
                                                 <span class="stage-badge clickable ${stageConfig.class}" data-stage="${stage}">${stage}</span>

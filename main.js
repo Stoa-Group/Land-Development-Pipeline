@@ -487,10 +487,11 @@ async function init() {
             if (stageTrigger && stagePanel) {
                 stageTrigger.addEventListener('click', function(e) {
                     e.stopPropagation();
-                    const open = stagePanel.getAttribute('aria-hidden') !== 'true';
-                    stagePanel.setAttribute('aria-hidden', open ? 'false' : 'true');
-                    stageTrigger.setAttribute('aria-expanded', !open);
-                    stagePanel.style.display = open ? 'block' : 'none';
+                    const isOpen = stagePanel.getAttribute('aria-hidden') !== 'true';
+                    // Toggle: if open → close, if closed → open
+                    stagePanel.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
+                    stageTrigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+                    stagePanel.style.display = isOpen ? 'none' : 'block';
                 });
                 document.addEventListener('click', function(e) {
                     if (!stagePanel.contains(e.target) && e.target !== stageTrigger) {
