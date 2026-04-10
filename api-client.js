@@ -2928,6 +2928,33 @@
   API.scoreDeal = function(dealId) {
     return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/score', 'POST');
   };
+  API.updateDealContact = function(dealId, personId, role, notes) {
+    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/contacts/' + personId, 'PUT', { role: role, notes: notes });
+  };
+  API.getContactDeals = function(personId) {
+    return apiRequest('/api/pipeline/contacts/' + personId + '/deals');
+  };
+  API.createCustomField = function(data) {
+    return apiRequest('/api/pipeline/custom-fields', 'POST', data);
+  };
+  API.updateCustomField = function(fieldId, data) {
+    return apiRequest('/api/pipeline/custom-fields/' + fieldId, 'PUT', data);
+  };
+  API.deleteCustomField = function(fieldId) {
+    return apiRequest('/api/pipeline/custom-fields/' + fieldId, 'DELETE');
+  };
+  API.createScoringCriteria = function(data) {
+    return apiRequest('/api/pipeline/scoring/criteria', 'POST', data);
+  };
+  API.updateScoringCriteria = function(id, data) {
+    return apiRequest('/api/pipeline/scoring/criteria/' + id, 'PUT', data);
+  };
+  API.deleteScoringCriteria = function(id) {
+    return apiRequest('/api/pipeline/scoring/criteria/' + id, 'DELETE');
+  };
+  API.scoreAllDeals = function() {
+    return apiRequest('/api/pipeline/scoring/score-all', 'POST');
+  };
 
   // ============================================================
   // EXPOSE ALL FUNCTIONS TO API OBJECT
@@ -3208,122 +3235,6 @@
   API.bulkResolveInvestorNames = bulkResolveInvestorNames;
   API.resolveRowInvestorName = resolveRowInvestorName;
   API.resolveDatasetInvestorNames = resolveDatasetInvestorNames;
-
-  // ── Activity Feed ──────────────────────────────────────────────
-  API.getDealActivity = function(dealId, page, limit) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/activity?page=' + (page || 1) + '&limit=' + (limit || 50));
-  };
-  API.getGlobalActivity = function(days) {
-    return apiRequest('/api/pipeline/activity?days=' + (days || 7));
-  };
-
-  // ── Notifications ──────────────────────────────────────────────
-  API.getNotifications = function(all) {
-    return apiRequest('/api/pipeline/notifications' + (all ? '?all=true' : ''));
-  };
-  API.markNotificationRead = function(id) {
-    return apiRequest('/api/pipeline/notifications/' + id + '/read', { method: 'PUT' });
-  };
-  API.markAllNotificationsRead = function() {
-    return apiRequest('/api/pipeline/notifications/read-all', { method: 'PUT' });
-  };
-
-  // ── User Management (Admin) ────────────────────────────────────
-  API.getUsers = function() {
-    return apiRequest('/api/auth/users');
-  };
-  API.updateUserRole = function(userId, role) {
-    return apiRequest('/api/auth/users/' + userId + '/role', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: role })
-    });
-  };
-
-  // ── Deal Contacts / CRM ────────────────────────────────────────
-  API.getDealContacts = function(dealId) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/contacts');
-  };
-  API.addDealContact = function(dealId, personId, role, notes) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/contacts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ personId: personId, role: role, notes: notes })
-    });
-  };
-  API.updateDealContact = function(dealId, personId, role, notes) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/contacts/' + personId, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: role, notes: notes })
-    });
-  };
-  API.removeDealContact = function(dealId, personId) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/contacts/' + personId, { method: 'DELETE' });
-  };
-  API.getContactDeals = function(personId) {
-    return apiRequest('/api/pipeline/contacts/' + personId + '/deals');
-  };
-
-  // ── Custom Fields ──────────────────────────────────────────────
-  API.getCustomFields = function() {
-    return apiRequest('/api/pipeline/custom-fields');
-  };
-  API.createCustomField = function(data) {
-    return apiRequest('/api/pipeline/custom-fields', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-  };
-  API.updateCustomField = function(fieldId, data) {
-    return apiRequest('/api/pipeline/custom-fields/' + fieldId, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-  };
-  API.deleteCustomField = function(fieldId) {
-    return apiRequest('/api/pipeline/custom-fields/' + fieldId, { method: 'DELETE' });
-  };
-  API.getDealCustomFields = function(dealId) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/custom-fields');
-  };
-  API.setDealCustomField = function(dealId, fieldId, value) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/custom-fields/' + fieldId, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ value: value })
-    });
-  };
-
-  // ── Deal Scoring ───────────────────────────────────────────────
-  API.getScoringCriteria = function() {
-    return apiRequest('/api/pipeline/scoring/criteria');
-  };
-  API.createScoringCriteria = function(data) {
-    return apiRequest('/api/pipeline/scoring/criteria', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-  };
-  API.updateScoringCriteria = function(id, data) {
-    return apiRequest('/api/pipeline/scoring/criteria/' + id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-  };
-  API.deleteScoringCriteria = function(id) {
-    return apiRequest('/api/pipeline/scoring/criteria/' + id, { method: 'DELETE' });
-  };
-  API.scoreDeal = function(dealId) {
-    return apiRequest('/api/pipeline/deal-pipeline/' + dealId + '/score', { method: 'POST' });
-  };
-  API.scoreAllDeals = function() {
-    return apiRequest('/api/pipeline/scoring/score-all', { method: 'POST' });
-  };
 
   // Expose API to global scope
   const globalScope = typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : this;

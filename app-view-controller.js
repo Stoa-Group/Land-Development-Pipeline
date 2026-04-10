@@ -96,6 +96,10 @@ async function switchView(view, deals) {
                 setupDrillDownHandlers();
                 setupMapViewControls();
                 if (mapInstance) mapInstance.invalidateSize();
+                // Add data layers (Stoa properties, heatmap)
+                if (typeof addMapLayers === 'function' && mapInstance) {
+                    addMapLayers(mapInstance, filteredForMap);
+                }
                 // Auto-enter fullscreen on mobile for better map experience
                 if (window.IS_MOBILE && window.innerWidth <= 768) {
                     const fsBtn = document.getElementById('map-fullscreen-btn');
@@ -250,6 +254,9 @@ async function switchView(view, deals) {
             break;
         case 'charts':
             renderCharts(deals);
+            break;
+        case 'compare':
+            renderComparablesView(deals);
             break;
         default:
             renderDealList(deals);

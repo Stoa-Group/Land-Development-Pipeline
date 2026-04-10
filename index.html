@@ -66,6 +66,7 @@
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="units">Unit Summary</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="contacts">Contacts</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="charts">Analytics</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="compare">Compare</button>
           </div>
         </div>
 
@@ -185,6 +186,7 @@
                 <button type="button" class="mobile-more-link" data-view="units">Unit Summary</button>
                 <button type="button" class="mobile-more-link" data-view="contacts">Contacts</button>
                 <button type="button" class="mobile-more-link" data-view="charts">Analytics</button>
+                <button type="button" class="mobile-more-link" data-view="compare">Compare</button>
               </div>
               <div class="mobile-more-view-wrap" id="mobile-more-view-wrap" style="display: none;">
                 <button type="button" class="mobile-more-back" id="mobile-more-back">← Back</button>
@@ -664,11 +666,13 @@
     <script src="app-timeline.js"></script>
     <script src="app-overview.js"></script>
     <script src="app-upcoming-map.js"></script>
+    <script src="app-map-layers.js"></script>
     <script src="app-bank-contacts.js"></script>
     <script src="app-timeline-units.js"></script>
     <script src="app-deal-detail.js"></script>
     <script src="app-charts.js"></script>
     <script src="app-kanban.js"></script>
+    <script src="app-comparables.js"></script>
     <script src="app-view-controller.js"></script>
     <script src="app-deal-modal.js"></script>
     <script src="app-pipeline-table.js"></script>
@@ -676,5 +680,15 @@
     <script src="app-export.js"></script>
     <!-- main.js: ES module entry point — imports extracted modules, proxies state, runs init() -->
     <script type="module" src="main.js"></script>
+    <!-- Service Worker registration for offline caching -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+            console.warn('[SW] Registration failed:', err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

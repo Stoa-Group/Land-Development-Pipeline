@@ -204,6 +204,95 @@ document.addEventListener('click', function(e) {
   }
 });
 
+// ============================================================
+// Pull-to-refresh (mobile only)
+// ============================================================
+
+(function() {
+  var PTR_THRESHOLD = 60;
+  var _ptrStartY = 0;
+  var _ptrCurrentY = 0;
+  var _ptrActive = false;
+  var _ptrIndicator = null;
+
+  function _isMobile() {
+    return window.IS_MOBILE || window.innerWidth <= 768;
+  }
+
+  function _getIndicator() {
+    if (!_ptrIndicator) {
+      _ptrIndicator = document.createElement('div');
+      _ptrIndicator.className = 'ptr-indicator';
+      _ptrIndicator.innerHTML = '<span class="ptr-spinner"></span><span class="ptr-text">Pull to refresh</span>';
+      _ptrIndicator.style.cssText = 'position:fixed;top:0;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px;background:var(--primary-green,#7e8a6b);color:#fff;font-size:13px;font-weight:500;z-index:9999;transform:translateY(-100%);transition:transform 0.2s ease;';
+      document.body.appendChild(_ptrIndicator);
+    }
+    return _ptrIndicator;
+  }
+
+  function _isScrolledToTop() {
+    // Check if the active scrollable area is at the top
+    var mobileContent = document.getElementById('mobile-content');
+    if (mobileContent) {
+      var scrollable = mobileContent.querySelector('.mobile-deals-pane:not([style*="display: none"])') ||
+                       mobileContent.querySelector('.mobile-more-pane:not([style*="display: none"])');
+      if (scrollable) return scrollable.scrollTop <= 0;
+    }
+    return window.scrollY <= 0 || document.documentElement.scrollTop <= 0;
+  }
+
+  document.addEventListener('touchstart', function(e) {
+    if (!_isMobile()) return;
+    if (!_isScrolledToTop()) return;
+    _ptrStartY = e.touches[0].clientY;
+    _ptrActive = true;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!_ptrActive || !_isMobile()) return;
+    _ptrCurrentY = e.touches[0].clientY;
+    var diff = _ptrCurrentY - _ptrStartY;
+    if (diff < 0) { _ptrActive = false; return; }
+    if (!_isScrolledToTop()) { _ptrActive = false; return; }
+
+    var indicator = _getIndicator();
+    var progress = Math.min(diff / PTR_THRESHOLD, 1);
+    indicator.style.transform = 'translateY(' + ((progress * 100) - 100) + '%)';
+    var textEl = indicator.querySelector('.ptr-text');
+    if (textEl) textEl.textContent = diff >= PTR_THRESHOLD ? 'Release to refresh' : 'Pull to refresh';
+  }, { passive: true });
+
+  document.addEventListener('touchend', function() {
+    if (!_ptrActive) return;
+    _ptrActive = false;
+    var diff = _ptrCurrentY - _ptrStartY;
+    var indicator = _getIndicator();
+
+    if (diff >= PTR_THRESHOLD) {
+      var textEl = indicator.querySelector('.ptr-text');
+      if (textEl) textEl.textContent = 'Refreshing...';
+      indicator.style.transform = 'translateY(0)';
+
+      // Trigger data reload
+      var reloaded = false;
+      if (typeof init === 'function') { init(); reloaded = true; }
+      else if (typeof switchView === 'function' && typeof currentView !== 'undefined' && typeof allDeals !== 'undefined') {
+        switchView(currentView, allDeals);
+        reloaded = true;
+      }
+      if (!reloaded && typeof showToast === 'function') showToast('Refreshed', 'info');
+
+      setTimeout(function() {
+        indicator.style.transform = 'translateY(-100%)';
+      }, 1200);
+    } else {
+      indicator.style.transform = 'translateY(-100%)';
+    }
+    _ptrCurrentY = 0;
+    _ptrStartY = 0;
+  }, { passive: true });
+})();
+
 // Delegate click handler: intercept all external Asana links in Domo's sandbox
 document.addEventListener('click', function(e) {
   var link = e.target.closest('a[target="_blank"]');
