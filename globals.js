@@ -68,3 +68,35 @@ window.exitCityView = function() {
 window.focusMapOnCity = function(cityName) {
   if (window.__focusMapOnCity) window.__focusMapOnCity(cityName);
 };
+
+// Open external URL — escapes Domo's sandboxed iframe (allow-popups blocked)
+window.openExternalUrl = function(url) {
+  if (!url) return;
+  try {
+    // Try window.top first (escapes Domo sandbox)
+    if (window.top && window.top !== window) {
+      window.top.open(url, '_blank');
+    } else {
+      window.open(url, '_blank');
+    }
+  } catch (e) {
+    // Cross-origin top frame — fall back to copying URL
+    try { navigator.clipboard.writeText(url); } catch (ignored) {}
+    if (typeof showToast === 'function') {
+      showToast('Link copied to clipboard — paste in a new tab to open.', 'info');
+    } else {
+      alert('Could not open link. URL copied to clipboard:\n' + url);
+    }
+  }
+};
+
+// Delegate click handler: intercept all external Asana links in Domo's sandbox
+document.addEventListener('click', function(e) {
+  var link = e.target.closest('a[target="_blank"]');
+  if (!link) return;
+  var href = link.getAttribute('href');
+  if (!href) return;
+  e.preventDefault();
+  e.stopPropagation();
+  window.openExternalUrl(href);
+}, true);
