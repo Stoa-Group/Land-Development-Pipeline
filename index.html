@@ -8,6 +8,8 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <script>(function(){var w=window,d=document.documentElement;var m=w.matchMedia&&w.matchMedia('(max-width:1024px)').matches||('ontouchstart'in w&&w.innerWidth<=1024);var ml=w.matchMedia&&(w.matchMedia('(max-width:600px)').matches||(w.matchMedia('(max-width:768px)').matches&&w.matchMedia('(orientation:portrait)').matches));d.setAttribute('data-mobile',m?'true':'false');d.setAttribute('data-mobile-layout',ml?'true':'false');w.IS_MOBILE=m;w.IS_MOBILE_LAYOUT=ml;})();</script>
+    <!-- Chart.js for Charts & Analytics view -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
     <!-- ExcelJS for styled Excel export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -41,12 +43,14 @@
           </div>
           <div class="nav-tabs" role="tablist" aria-label="Main navigation">
             <button class="nav-tab active" role="tab" aria-selected="true" aria-controls="deal-list-container" data-view="overview">Overview</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="kanban">Board</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="list">List</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="location">Map</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="timeline">Timeline</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="upcoming-dates">Upcoming Dates</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="units">Unit Summary</button>
             <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="contacts">Contacts</button>
+            <button class="nav-tab" role="tab" aria-selected="false" aria-controls="deal-list-container" data-view="charts">Analytics</button>
           </div>
         </div>
 
@@ -160,10 +164,12 @@
             <div class="mobile-more-pane" id="mobile-more-pane" style="display: none;">
               <div class="mobile-more-links" id="mobile-more-links">
                 <button type="button" class="mobile-more-link" data-view="overview">Overview</button>
+                <button type="button" class="mobile-more-link" data-view="kanban">Board</button>
                 <button type="button" class="mobile-more-link" data-view="timeline">Timeline</button>
                 <button type="button" class="mobile-more-link" data-view="upcoming-dates">Upcoming Dates</button>
                 <button type="button" class="mobile-more-link" data-view="units">Unit Summary</button>
                 <button type="button" class="mobile-more-link" data-view="contacts">Contacts</button>
+                <button type="button" class="mobile-more-link" data-view="charts">Analytics</button>
               </div>
               <div class="mobile-more-view-wrap" id="mobile-more-view-wrap" style="display: none;">
                 <button type="button" class="mobile-more-back" id="mobile-more-back">← Back</button>
@@ -646,6 +652,8 @@
     <script src="app-bank-contacts.js"></script>
     <script src="app-timeline-units.js"></script>
     <script src="app-deal-detail.js"></script>
+    <script src="app-charts.js"></script>
+    <script src="app-kanban.js"></script>
     <script src="app-view-controller.js"></script>
     <script src="app-deal-modal.js"></script>
     <script src="app-pipeline-table.js"></script>

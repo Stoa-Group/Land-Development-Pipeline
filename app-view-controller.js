@@ -82,6 +82,9 @@ async function switchView(view, deals) {
             container.innerHTML = renderOverview(deals);
             setupDrillDownHandlers();
             break;
+        case 'kanban':
+            container.innerHTML = renderKanban(deals);
+            break;
         case 'list':
             await renderDealList(deals);
             break;
@@ -244,6 +247,9 @@ async function switchView(view, deals) {
         case 'units':
             container.innerHTML = renderUnitSummary(deals);
             setupDrillDownHandlers();
+            break;
+        case 'charts':
+            renderCharts(deals);
             break;
         default:
             renderDealList(deals);
