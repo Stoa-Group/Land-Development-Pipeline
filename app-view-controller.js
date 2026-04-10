@@ -67,13 +67,9 @@ async function switchView(view, deals) {
         if (sortControls) sortControls.style.display = 'none';
     }
     
-    // Show/hide list view toggle
+    // Hide list view toggle (list is now a flat table; grouping removed)
     const listViewToggle = document.getElementById('list-view-toggle');
-    if (view === 'list') {
-        if (listViewToggle) listViewToggle.style.display = 'flex';
-    } else {
-        if (listViewToggle) listViewToggle.style.display = 'none';
-    }
+    if (listViewToggle) listViewToggle.style.display = 'none';
     
     // Re-trigger view fade-in animation
     container.style.animation = 'none';

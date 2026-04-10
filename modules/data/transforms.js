@@ -282,7 +282,7 @@ export function applyFilters(deals, excludeStart = true, forOverview = false, fo
                 } catch (e) { return false; }
             } else return false;
         }
-        const dateAddedRange = currentFilters.dateAddedRange || '1y';
+        const dateAddedRange = currentFilters.dateAddedRange || 'unlimited';
         if (dateAddedRange !== 'unlimited') {
             const createdAt = deal.CreatedAt || deal.createdAt || deal.createdat;
             if (createdAt) {

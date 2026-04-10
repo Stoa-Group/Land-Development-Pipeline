@@ -30,12 +30,12 @@ export const state = {
         const saved = localStorage.getItem('dealPipeline_dateAddedDefault');
         if (saved && ['3m','6m','1y','2y','unlimited'].includes(saved)) return saved;
       } catch (e) { /* ignore */ }
-      return '1y';
+      return 'unlimited';
     })()
   },
   currentSort: { by: 'date', order: 'asc' },
   blockSort: { by: 'date', order: 'asc' },
-  listViewMode: 'location', // 'location' | 'stage' | 'product' | 'bank'
+  listViewMode: 'flat', // flat list is now the default
 
   // Map instances
   mapInstance: null,
